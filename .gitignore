@@ -1,0 +1,7 @@
+/dploy_local.sh
+/dploy_pypi.sh
+/PyPart.egg-info/
+/dist/
+/build/
+/test/
+/setup.py
