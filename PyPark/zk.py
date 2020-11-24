@@ -9,8 +9,8 @@ from kazoo.protocol.states import KazooState
 from kazoo.client import KazooClient
 import logging
 
-from src.cons import ServerType
-from src.util.net import date_to_str
+from PyPark.cons import ServerType
+from PyPark.util.net import date_to_str
 
 pass
 

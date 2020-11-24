@@ -2,9 +2,9 @@ import logging
 import time
 import uuid
 
-from src.API import PART_API
-from src.cons import ServerType
-from src.shootback.slaver import run_slaver, threading, split_host
+from PyPark.API import PART_API
+from PyPark.cons import ServerType
+from PyPark.shootback.slaver import run_slaver, threading, split_host
 
 logging.basicConfig(level=logging.INFO)
 

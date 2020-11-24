@@ -4,7 +4,7 @@ import os
 import tempfile
 import queue
 import atexit
-from src.shootback.common_func import *
+from PyPark.shootback.common_func import *
 
 _listening_sockets = []  # for close at exit
 __author__ = "Aploium <i@z.codes>"

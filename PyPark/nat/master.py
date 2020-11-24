@@ -1,12 +1,12 @@
 import yaml
 
-from src.API import PART_API
+from PyPark.API import PART_API
 import logging
 from multiprocessing import Process
 
-from src.result import Result
-from src.shootback.master import run_master
-from src.util.net import get_random_port
+from PyPark.result import Result
+from PyPark.shootback.master import run_master
+from PyPark.util.net import get_random_port
 
 logging.basicConfig(level=logging.INFO)
 

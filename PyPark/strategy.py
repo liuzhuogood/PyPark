@@ -5,9 +5,9 @@ import re
 import threading
 import requests
 
-from src.cons import Strategy
-from src.part_exception import NoServiceException, ServiceException
-from src.result import Result, StatusCode
+from PyPark.cons import Strategy
+from PyPark.park_exception import NoServiceException, ServiceException
+from PyPark.result import Result, StatusCode
 
 
 # key:url value:index

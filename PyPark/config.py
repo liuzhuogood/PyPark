@@ -2,8 +2,8 @@ import threading
 from io import StringIO
 
 import ruamel.yaml
-from src.util.net import date_to_str
-from src.zk import ZK
+from PyPark.util.net import date_to_str
+from PyPark.zk import ZK
 import logging
 
 yaml = ruamel.yaml.YAML()

@@ -5,10 +5,10 @@ import json
 from abc import ABC
 import tornado.ioloop
 import tornado.web
-from src.part_exception import ServiceException
+from PyPark.park_exception import ServiceException
 import inspect
 
-from src.result import Result
+from PyPark.result import Result
 
 
 class Handler(tornado.web.RequestHandler, ABC):
