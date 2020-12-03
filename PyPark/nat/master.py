@@ -33,8 +33,8 @@ class Master(object):
             data_port = data.get("data_port", None)
             if data_port is None:
                 data_port = get_random_port(ip=self.app.server_ip)
-            communicate_addr = (self.app.server_ip, data_port)
-            customer_listen_addr = (self.app.server_ip, nat_port)
+            communicate_addr = ("0.0.0.0", data_port)
+            customer_listen_addr = ("0.0.0.0", nat_port)
             self.app.secret_key = data["secret_key"]
             process = Process(target=run_master, args=(communicate_addr, customer_listen_addr, self.app.secret_key))
             process.start()

@@ -3,7 +3,7 @@ import time
 import uuid
 
 from PyPark.API import PART_API
-from PyPark.cons import ServerType
+from PyPark.cons import ServerRole
 from PyPark.shootback.slaver import run_slaver, threading, split_host
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +25,7 @@ class Slaver(object):
         try:
             # Master增加转发Nat
             secret_key = str(uuid.uuid4())
-            result = self.get(PART_API.ADD_NAT, server_type=ServerType.Master,
+            result = self.get(PART_API.ADD_NAT, server_role=ServerRole.Master,
                               data={"nat_port": self.nat_port, "secret_key": secret_key,
                                     "target_addr": self.target_addr})
             if result.is_success:

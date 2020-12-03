@@ -1,4 +1,4 @@
-class ServerType:
+class ServerRole:
     Master = "Master"
     Slaver = "Slaver"
     Visitor = "Visitor"

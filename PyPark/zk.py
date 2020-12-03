@@ -9,7 +9,7 @@ from kazoo.protocol.states import KazooState
 from kazoo.client import KazooClient
 import logging
 
-from PyPark.cons import ServerType
+from PyPark.cons import ServerRole
 from PyPark.util.net import date_to_str
 
 pass
@@ -17,7 +17,7 @@ pass
 
 class ZK:
     def __init__(self, zk_host, server_ip, service_port, zk_base_path,
-                 server_type=ServerType.Visitor,
+                 server_role=ServerRole.Visitor,
                  server_desc="", secret_key="",
                  server_network="",
                  nat_port=None, zk_auth_data=None):
@@ -27,7 +27,7 @@ class ZK:
         self.pid = os.getpid()
         self.zk_base_path = zk_base_path
         self.nat_port = nat_port
-        self.server_type = server_type
+        self.server_role = server_role
         self.secret_key = secret_key
         self.server_desc = server_desc
         self.server_ip = server_ip
@@ -79,7 +79,7 @@ class ZK:
             path = self.path_join("services", url)
             self.mkdir(path)
             temp_path = self.path_join(path,
-                                       f"[{self.server_network}]-{self.server_type}({self.server_ip}:{self.service_port})")
+                                       f"[{self.server_network}]-{self.server_role}({self.server_ip}:{self.service_port})")
             service_url = f"""http://{self.server_ip}:{self.service_port}{path.lstrip("service")}"""
             self.setTempValue(temp_path, yaml.dump({
                 "server_network": self.server_network,
@@ -104,7 +104,7 @@ class ZK:
     def register_server(self, retry=0):
         retry += 1
         try:
-            name = f"[{self.server_network}]-{self.server_type}({self.server_ip}:{self.service_port})"
+            name = f"[{self.server_network}]-{self.server_role}({self.server_ip}:{self.service_port})"
             self.zk_server_node_path = self.path_join("servers", name)
             self.mkdir(os.path.dirname(self.zk_server_node_path))
             b = self.setTempValue(self.zk_server_node_path, yaml.dump({
@@ -112,7 +112,7 @@ class ZK:
                 "port": self.service_port,
                 "nat_port": self.nat_port,
                 "pid": self.pid,
-                "server_type": self.server_type,
+                "server_role": self.server_role,
                 "secret_key": self.secret_key,
                 "desc": self.server_desc,
                 "startTime": date_to_str()
@@ -149,10 +149,10 @@ class ZK:
         finally:
             self.lock.release()
 
-    def get_service_hosts(self, api, server_type, server_network=None):
+    def get_service_hosts(self, api, server_role, server_network=None):
         try:
             self.lock.acquire()
-            hosts = self.get_server_type_host(nodes=self.service_host_map.get(api, None), server_type=server_type,
+            hosts = self.get_server_role_host(nodes=self.service_host_map.get(api, None), server_role=server_role,
                                               server_network=server_network)
             return hosts
         finally:
@@ -210,16 +210,16 @@ class ZK:
             nodes = []
         return nodes
 
-    def get_server_type_host(self, server_type, server_network=None, nodes=None) -> list:
+    def get_server_role_host(self, server_role, server_network=None, nodes=None) -> list:
         """根据类型取出相应类型的host"""
         if nodes is None:
             nodes = self.get_nodes("servers")
         fs = []
         for node in nodes:
             if server_network is None:
-                h = re.findall(rf"{server_type}\((.*?)\)", node)
+                h = re.findall(rf"{server_role}\((.*?)\)", node)
             else:
-                h = re.findall(rf"\[{server_network}\]-{server_type}\((.*?)\)", node)
+                h = re.findall(rf"\[{server_network}\]-{server_role}\((.*?)\)", node)
             if len(h) > 0:
                 fs.append(h[0])
         return fs

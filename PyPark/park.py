@@ -3,14 +3,14 @@ import logging
 import os
 from PyPark.Watch import Watch
 from PyPark.config import Config
-from PyPark.cons import ServerType, Strategy
+from PyPark.cons import ServerRole, Strategy
 from PyPark.http import http_close, http_run
 from PyPark.nat.master import Master
 from PyPark.nat.slaver import Slaver
 from PyPark.park_exception import NoServiceException
 from PyPark.result import Result
 from PyPark.strategy import strategy_choice
-from PyPark.util.net import get_random_port, get_pc_name_ip
+from PyPark.util.net import get_random_port, get_pc_name_ip, is_inuse
 from PyPark.zk import ZK
 
 
@@ -37,8 +37,8 @@ class Park(object):
         :param zk_host:str                      # zk地址 例："127.0.0.1:2181"
         :param zk_base_path:str                 # zk_base_path, 默认为 "PyPark"
         :param zk_auth_data:str                 # zk ACL 例：[("digest", "username:password")]
-        :param server_name:str                  # 服务名,默认："PyPark"
-        :param server_type:str                  # 服务类型 ServerType
+        :param zk_base_path:str                 # 默认："PyPark"
+        :param server_role:str                  # 服务类型 ServerRole
         :param server_desc:str                  # 服务描述
         :param server_network:str               # 服务网络，只有属于同一网络才可以局域网调用
         :param server_ip:str                    # 本机服务器IP，默认为连接ZK的网卡IP
@@ -55,11 +55,12 @@ class Park(object):
         self.zk_host = kwargs.get("zk_host", None)
         self.nat_port = kwargs.get("nat_port", None)
         self.sync_config = kwargs.get("sync_config", False)
-        self.server_type = kwargs.get("server_type", ServerType.Visitor)
+        self.server_role = kwargs.get("server_role", ServerRole.Visitor)
+        self.server_port = kwargs.get("server_port", None)
         self.server_desc = kwargs.get("server_desc", "")
         self.server_network = kwargs.get("server_network", "LOCAL")
 
-        if self.server_type == ServerType.Slaver and self.nat_port is None:
+        if self.server_role == ServerRole.Slaver and self.nat_port is None:
             raise Exception("用NAT服务器，必须配置一个NAT端口")
 
         self.zk_base_path = zk_base_path
@@ -67,12 +68,15 @@ class Park(object):
         self.server_ip = server_ip
         # service端口
         self.service_base_url = base_url
-        self.service_port = get_random_port(ip=self.server_ip)
+        if self.server_port is None:
+            self.service_port = get_random_port(ip=self.server_ip)
+        else:
+            self.service_port = self.server_port
         self.service_local_map = {}
         # zookeeper
         self.zk = ZK(zk_host=zk_host,
                      server_ip=self.server_ip,
-                     server_type=self.server_type,
+                     server_role=self.server_role,
                      service_port=self.service_port,
                      nat_port=self.nat_port,
                      server_desc=self.server_desc,
@@ -86,10 +90,10 @@ class Park(object):
         # 配置中心
         self.config = Config(self.zk, self.sync_config)
 
-        if self.server_type == ServerType.Master:
+        if self.server_role == ServerRole.Master:
             self.master = Master(self)
 
-        if self.server_type == ServerType.Slaver:
+        if self.server_role == ServerRole.Slaver:
             self.slaver = Slaver(target_addr=f"{self.server_ip}:{self.service_port}", nat_port=self.nat_port,
                                  get=self.get)
 
@@ -107,8 +111,7 @@ class Park(object):
             else:
                 a = path
             # 加上默认路径
-            a = os.path.join(self.service_base_url, a)
-
+            a = "/" + ZK.path_join(self.service_base_url, a)
             if self.service_local_map.get(a, None) is None:
                 self.service_local_map[a] = {
                     "fn": fn,
@@ -160,20 +163,20 @@ class Park(object):
         :param headers:dict                             # http headers
         :return:
         """
-        kwargs["server_type"] = kwargs.get("server_type", ServerType.Visitor)
+        kwargs["server_role"] = kwargs.get("server_role", ServerRole.Visitor)
         kwargs["server_network"] = kwargs.get("server_network", self.server_network)
         kwargs["strategy"] = kwargs.get("strategy", Strategy.ROUND)
         kwargs["async_flag"] = kwargs.get("async_flag", False)
         kwargs["kwargs"] = kwargs.get("timeout", self.timeout)
 
-        hosts = self.zk.get_service_hosts(api=api, server_type=kwargs["server_type"],
+        hosts = self.zk.get_service_hosts(api=api, server_role=kwargs["server_role"],
                                           server_network=kwargs["server_network"])
         if len(hosts) == 0:
             raise NoServiceException(api)
         return strategy_choice(hosts=hosts, url=api, data=data, **kwargs)
 
     def add_nat(self, nat_port, target_addr):
-        if self.server_type == ServerType.Slaver:
+        if self.server_role == ServerRole.Slaver:
             self.slaver = Slaver(target_addr=target_addr, nat_port=nat_port,
                                  get=self.get)
         else:
@@ -184,9 +187,12 @@ class Park(object):
         self.zk.register_service(service_local_map=self.service_local_map)
         # 设置路径
         logging.debug("-----------PyPark-------------")
-        logging.info(f"{self.server_type} PyPark Start By {self.server_ip}:{self.service_port}")
+        for u in self.service_local_map.keys():
+            logging.info(f"===> Service:{u}")
+
+        logging.info(f"{self.server_role} PyPark Start By {self.server_ip}:{self.service_port}")
         try:
-            http_run(self.server_ip, self.service_port, url_map=self.service_local_map)
+            http_run("0.0.0.0", self.service_port, url_map=self.service_local_map)
         except KeyboardInterrupt:
             logging.info("手动停止")
             pass

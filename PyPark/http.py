@@ -19,7 +19,7 @@ class Handler(tornado.web.RequestHandler, ABC):
         fn = m["fn"]
         args = inspect.getfullargspec(fn)
         num = len(args.args)
-        contentType = self.request.headers["Content-Type"]
+        contentType = self.request.headers.get("Content-Type", "")
         if contentType == "application/json":
             if len(self.request.body) == 0:
                 body = {}
