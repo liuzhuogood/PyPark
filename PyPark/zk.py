@@ -20,10 +20,11 @@ class ZK:
                  server_role=ServerRole.Visitor,
                  server_desc="", secret_key="",
                  server_network="",
-                 nat_port=None, zk_auth_data=None):
+                 nat_port=None, zk_auth_data=None, log=None):
+        self.log = log or logging.getLogger(__name__)
         self.root = "/"
         self.zk_host = zk_host
-        self.zk = KazooClient(hosts=self.zk_host, auth_data=zk_auth_data)
+        self.zk = KazooClient(hosts=self.zk_host, auth_data=zk_auth_data, logger=self.log)
         self.pid = os.getpid()
         self.zk_base_path = zk_base_path
         self.nat_port = nat_port
@@ -38,34 +39,35 @@ class ZK:
         self.stop = False
 
         self.zk_server_node_path = None
+        # self.zk.add_listener(self.connect_listener)
         # atexit.register(self.close_listening_socket_at_exit)
 
     def connect_listener(self, state):
         if state == KazooState.LOST:
-            logging.warning("会话超时:KazooState.LOST")
+            self.log.warning("会话超时:KazooState.LOST")
             s_time = 1
             while not self.stop:
                 try:
                     self.start()
-                    s_time = 1
-                    logging.warning("会话超时:重建会话完成!")
+
+                    s_time = 0.1
+                    self.log.warning("会话超时:重建会话完成!")
                     break
                 except Exception as e:
                     s_time = 2 * s_time
-                    logging.exception(f"ZK连接出错{str(e)},wait {s_time} second...")
+                    self.log.exception(f"ZK连接出错{str(e)},wait {s_time} second...")
                     time.sleep(s_time)
 
         elif state == KazooState.SUSPENDED:
-            logging.warning("会话超时:KazooState.SUSPENDED")
+            self.log.warning("会话超时:KazooState.SUSPENDED")
         elif state == KazooState.CONNECTED:
-            logging.warning("会话超时:KazooState.CONNECTED")
+            self.log.warning("会话超时:KazooState.CONNECTED")
         else:
-            logging.warning("会话超时:非法状态")
+            self.log.warning("会话超时:非法状态")
 
     def start(self):
         self.zk.start()
-        # self.zk.add_listener(self.connect_listener)
-        logging.info(f"zk连接成功")
+        self.log.info(f"zk连接成功")
 
     def end(self):
         try:
@@ -124,7 +126,7 @@ class ZK:
                 else:
                     raise Exception("尝试多次后，ZK注册失败")
         except Exception as e:
-            logging.exception(e)
+            self.log.exception(e)
             raise e
 
     def watcher_service_map(self, event=None):
@@ -206,7 +208,7 @@ class ZK:
             path = self.path_join(self.zk_base_path, path)
             nodes = self.zk.get_children(path)
         except NoNodeError:
-            logging.debug("NoNodeError--->" + path)
+            self.log.debug("NoNodeError--->" + path)
             nodes = []
         return nodes
 

@@ -1,16 +1,17 @@
 import atexit
-import logging
 import os
 from PyPark.Watch import Watch
 from PyPark.config import Config
 from PyPark.cons import ServerRole, Strategy
-from PyPark.http import http_close, http_run
+from PyPark.http import *
 from PyPark.nat.master import Master
 from PyPark.nat.slaver import Slaver
 from PyPark.park_exception import NoServiceException
 from PyPark.result import Result
 from PyPark.strategy import strategy_choice
+from PyPark.util.json_to import JsonTo
 from PyPark.util.net import get_random_port, get_pc_name_ip, is_inuse
+from PyPark.version import show_version
 from PyPark.zk import ZK
 
 
@@ -45,6 +46,9 @@ class Park(object):
         :param service_base_url:str             # service路径，默认为"/",对应zk多级目录
         :param nat_port:int                     # 内网穿透服务,启动NAT slaver进程
         :param sync_config:bool                 # 配置是否同步, 默认False
+        :param api_doc:bool                     # 是否启动API DOC, 默认True
+        :param log:logging                      # 日志组件
+        :param json_to_cls:cls                  # JSON转换器,默认为 PyPark.util.json_to.JsonTo
         """
         ip, _ = get_pc_name_ip(zk_host)
         zk_base_path = kwargs.get("zk_base_path", "PyPark")
@@ -58,7 +62,11 @@ class Park(object):
         self.server_role = kwargs.get("server_role", ServerRole.Visitor)
         self.server_port = kwargs.get("server_port", None)
         self.server_desc = kwargs.get("server_desc", "")
+        self.log = kwargs.get("log", logging.getLogger(__name__))
         self.server_network = kwargs.get("server_network", "LOCAL")
+        self.api_doc = kwargs.get("api_doc", True)
+        self.json_to_cls = JsonTo
+        self.httpApp = HttpApp()
 
         if self.server_role == ServerRole.Slaver and self.nat_port is None:
             raise Exception("用NAT服务器，必须配置一个NAT端口")
@@ -83,6 +91,7 @@ class Park(object):
                      zk_auth_data=self.zk_auth_data,
                      zk_base_path=zk_base_path,
                      server_network=self.server_network,
+                     log=self.log
                      )
         self.zk.start()
         self.zk.watcher_service_map()
@@ -186,17 +195,19 @@ class Park(object):
         atexit.register(self.close)
         self.zk.register_service(service_local_map=self.service_local_map)
         # 设置路径
-        logging.debug("-----------PyPark-------------")
+        self.log.debug("-----------PyPark-------------")
         for u in self.service_local_map.keys():
-            logging.info(f"===> Service:{u}")
+            self.log.info(f"===> Service:{u}")
 
-        logging.info(f"{self.server_role} PyPark Start By {self.server_ip}:{self.service_port}")
+        self.log.info(f"执行文件创建日期<<:{show_version()}>>")
+        self.log.info(f"{self.server_role} PyPark Start By {self.server_ip}:{self.service_port}")
         try:
-            http_run("0.0.0.0", self.service_port, url_map=self.service_local_map)
+            self.httpApp.json_cls = self.json_to_cls
+            self.httpApp.run("0.0.0.0", self.service_port, url_map=self.service_local_map)
         except KeyboardInterrupt:
-            logging.info("手动停止")
+            self.log.info("手动停止")
             pass
 
     def close(self):
         self.zk.end()
-        http_close()
+        self.httpApp.close()
