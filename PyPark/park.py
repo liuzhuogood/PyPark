@@ -1,7 +1,7 @@
 import atexit
 import os
 from asyncio import Future
-
+from functools import wraps
 from PyPark.Watch import Watch
 from PyPark.config import Config
 from PyPark.cons import ServerRole, Strategy, ServerNetwork
@@ -162,6 +162,7 @@ class Park(object):
             else:
                 self.zk.set(path=a, value="")
                 self.zk.get(path=a, watch=Watch(self.zk, a, fn).callback)
+            return fn
 
         return decorate
 
@@ -180,7 +181,7 @@ class Park(object):
         :param headers:dict                             # http headers
         :return:
         """
-        kwargs["server_role"] = kwargs.get("server_role", ServerRole.Visitor)
+        kwargs["server_role"] = kwargs.get("server_role", ".*")
         kwargs["server_network"] = kwargs.get("server_network", self.server_network)
         kwargs["strategy"] = kwargs.get("strategy", Strategy.ROUND)
         kwargs["async_flag"] = kwargs.get("async_flag", False)
@@ -207,7 +208,7 @@ class Park(object):
         :param headers:dict                             # http headers
         :return:
         """
-        kwargs["server_role"] = kwargs.get("server_role", ServerRole.Visitor)
+        kwargs["server_role"] = kwargs.get("server_role", ".*")
         kwargs["server_network"] = kwargs.get("server_network", self.server_network)
         kwargs["strategy"] = kwargs.get("strategy", Strategy.ROUND)
         kwargs["async_flag"] = kwargs.get("async_flag", False)

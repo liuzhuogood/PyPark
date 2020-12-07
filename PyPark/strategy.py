@@ -60,10 +60,6 @@ def strategy_random(hosts, url, data, **kwargs) -> Result:
     return get_result(host, url, data, **kwargs)
 
 
-def get_result(host, url, data, **kwargs) -> Result:
-    return asyncio.ensure_future(get(host, url, data, **kwargs)).result()
-
-
 def strategy_diy(hosts, url, data, **kwargs) -> Result:
     """回调策略"""
     callback = kwargs.get("callback", None)
@@ -111,8 +107,17 @@ def many_strategy_host(hosts, url, data, **kwargs) -> [Future]:
     return get_many_results(data, filter_hosts, kwargs, url)
 
 
+def get_result(host, url, data, **kwargs) -> Result:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    task = asyncio.ensure_future(get(host, url, data, **kwargs))
+    loop.run_until_complete(asyncio.wait([task]))
+    return task.result()
+
+
 def get_many_results(data, filter_hosts, kwargs, url):
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     tasks = []
     for host in filter_hosts:
         tasks.append(asyncio.ensure_future(get(host, url, data, **kwargs)))
@@ -179,6 +184,6 @@ async def get(host, url, data, **kwargs) -> Result:
         if headers["Content-Type"] == "application/json":
             if r.status_code == 200:
                 return Result(**r.json())
-        return Result.error(code=str(r.status_code), msg=r.text)
+        return Result.error(code=str(r.status_code), msg=r.text, data=r.text)
     except Exception as e:
         return Result.error(code=StatusCode.SYSTEM_ERROR, msg=str(e))

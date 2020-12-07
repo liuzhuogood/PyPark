@@ -88,7 +88,7 @@ class ZK:
             self.mkdir(path)
             temp_path = self.path_join(path,
                                        f"[{self.server_network}]-{self.server_role}({self.server_ip}:{self.service_port})")
-            service_url = f"""http://{self.server_ip}:{self.service_port}{path.lstrip("service")}"""
+            service_url = f"""http://{self.server_ip}:{self.service_port}{path.lstrip("/service")}"""
             self.setTempValue(temp_path, yaml.dump({
                 "server_network": self.server_network,
                 "ip": self.server_ip,

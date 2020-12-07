@@ -3,10 +3,16 @@ Park service
 """
 import json
 from abc import ABC
+from concurrent.futures.thread import ThreadPoolExecutor
+
 import tornado.ioloop
 import tornado.web
 import inspect
 import logging
+
+from tornado import gen
+from tornado.concurrent import run_on_executor
+
 from PyPark.park_exception import ServiceException
 from PyPark.result import Result
 
@@ -37,9 +43,11 @@ class HttpApp:
 
 
 class Handler(tornado.web.RequestHandler, ABC):
+    executor = ThreadPoolExecutor(20)  # 起线程池，由当前RequestHandler持有
     service_map = {}
     app: HttpApp = None
 
+    @run_on_executor
     def _do_request(self):
         try:
             m = Handler.service_map.get(self.request.path, None)
@@ -73,9 +81,14 @@ class Handler(tornado.web.RequestHandler, ABC):
         except Exception as e:
             logging.exception(e)
             self.write(Result.error(code=500, msg=str(e)).__dict__)
+        finally:
+            # self.finish()
+            pass
 
+    @gen.coroutine
     def get(self):
-        self._do_request()
+        yield self._do_request()
 
+    @gen.coroutine
     def post(self):
-        self._do_request()
+        yield self._do_request()
