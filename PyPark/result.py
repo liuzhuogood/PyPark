@@ -1,5 +1,6 @@
 from PyPark.cons import StatusCode
 
+
 class Result:
 
     def __init__(self, is_success, status_code, data, msg=""):
@@ -9,7 +10,7 @@ class Result:
         self.msg = msg
 
     @staticmethod
-    def success(data, msg=""):
+    def success(data=None, msg=""):
         return Result(True, status_code=StatusCode.SUCCESS, data=data, msg=msg)
 
     @staticmethod

@@ -8,12 +8,11 @@ from PyPark.result import Result
 from PyPark.shootback.master import run_master
 from PyPark.util.net import get_random_port
 
-logging.basicConfig(level=logging.INFO)
-
 
 class Master(object):
 
-    def __init__(self, app):
+    def __init__(self, app, log=None):
+        self.log = log or logging.getLogger(__name__)
         self.app = app
         # key:nat_port value:process
         self.nat_port_map = {}
@@ -29,7 +28,7 @@ class Master(object):
         target_addr = data['target_addr']
         np = self.nat_port_map.get(nat_port, None)
         if np is None:
-            logging.info("===========增加NAT===================")
+            self.log.info("===========增加NAT===================")
             data_port = data.get("data_port", None)
             if data_port is None:
                 data_port = get_random_port(ip=self.app.server_ip)
@@ -48,7 +47,7 @@ class Master(object):
             data["master_ip"] = self.app.server_ip
             data["data_port"] = data_port
             print("addNat", data)
-            logging.info(f"===========增加NAT nat_port:{nat_port}======data_port:{data_port}=============")
+            self.log.info(f"===========增加NAT nat_port:{nat_port}======data_port:{data_port}=============")
             self.app.zk.update(path=self.app.zk.zk_server_node_path, value={"nat_port_map": self.nat_port_map})
             return Result.success(data=data)
         data["nat_port"] = nat_port
@@ -59,7 +58,7 @@ class Master(object):
 
     def add_last_nat(self):
         """增加ZK存在的Nat"""
-        logging.debug("查看现在是否存在的NAT")
+        self.log.debug("查看现在是否存在的NAT")
         nodes = self.app.zk.get_nodes("NAT/slavers")
         for node in nodes:
             try:
@@ -69,8 +68,8 @@ class Master(object):
                     "data_port": v["data_port"],
                     "nat_port": v["nat_port"],
                 }
-                logging.debug("重建连接..")
+                self.log.debug("重建连接..")
                 self.__addNat(data=data)
             except Exception as e:
-                logging.error("重建连接失败:" + str(e))
+                self.log.error("重建连接失败:" + str(e))
                 pass

@@ -12,8 +12,7 @@ from PyPark.result import Result
 
 
 class HttpApp:
-    def __init__(self, json_cls=None, log=None):
-        self.log = log or logging.getLogger(__name__)
+    def __init__(self, json_cls=None):
         self.json_cls = json_cls
 
     def __make(self, service_map: dict):
@@ -72,7 +71,7 @@ class Handler(tornado.web.RequestHandler, ABC):
                 else:
                     self.write(result)
         except Exception as e:
-            Handler.app.log.exception(e)
+            logging.exception(e)
             self.write(Result.error(code=500, msg=str(e)).__dict__)
 
     def get(self):

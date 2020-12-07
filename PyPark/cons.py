@@ -1,3 +1,8 @@
+class ServerNetwork:
+    LOCAL = "LOCAL"
+    NAT = "NAT"
+
+
 class ServerRole:
     Master = "Master"
     Slaver = "Slaver"
@@ -15,5 +20,4 @@ class Strategy:
     RANDOM = "RANDOM"
     HASH = "HASH"
     HOST = "HOST"
-    CALLBACK = "CALLBACK"
-
+    DIY = "DIY"

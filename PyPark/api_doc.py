@@ -8,8 +8,6 @@ from PyPark.result import Result
 from PyPark.shootback.master import run_master
 from PyPark.util.net import get_random_port
 
-logging.basicConfig(level=logging.INFO)
-
 """
 {
                 home:{

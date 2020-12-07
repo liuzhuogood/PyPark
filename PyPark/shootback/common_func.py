@@ -60,7 +60,7 @@ INTERNAL_VERSION = 0x0013
 __version__ = (2, 6, 1, INTERNAL_VERSION)
 
 # just a logger
-log = logging.getLogger(__name__)
+log = logging  # logging.getLogger(__name__)
 
 
 def version_info():

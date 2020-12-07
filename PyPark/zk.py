@@ -37,6 +37,7 @@ class ZK:
         self.service_host_map = {}
         self.lock = threading.RLock()
         self.stop = False
+        self.service_local_map = {}
 
         self.zk_server_node_path = None
         # self.zk.add_listener(self.connect_listener)
@@ -49,7 +50,11 @@ class ZK:
             while not self.stop:
                 try:
                     self.start()
-
+                    self.register_service(self.service_local_map)
+                    try:
+                        self.register_server()
+                    except Exception:
+                        pass
                     s_time = 0.1
                     self.log.warning("会话超时:重建会话完成!")
                     break
@@ -77,6 +82,7 @@ class ZK:
             pass
 
     def register_service(self, service_local_map):
+        self.service_local_map = service_local_map
         for url in list(service_local_map.keys()):
             path = self.path_join("services", url)
             self.mkdir(path)

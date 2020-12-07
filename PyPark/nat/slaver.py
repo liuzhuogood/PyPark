@@ -6,12 +6,11 @@ from PyPark.API import PART_API
 from PyPark.cons import ServerRole
 from PyPark.shootback.slaver import run_slaver, threading, split_host
 
-logging.basicConfig(level=logging.INFO)
-
 
 class Slaver(object):
 
-    def __init__(self, target_addr, nat_port, get):
+    def __init__(self, target_addr, nat_port, get, log=None):
+        self.log = log or logging.getLogger(__name__)
         self.nat_port = nat_port
         self.target_addr = target_addr
         self.get = get
@@ -36,14 +35,15 @@ class Slaver(object):
                 raise Exception("ADD_NAT ERROR" + str(result.msg))
             communicate_addr = (master_ip, int(data_port))
             time.sleep(1)
-            logging.info(
+            self.log.info(
                 f"communicate_addr:{communicate_addr}-target_addr:{self.target_addr}")
-            run_slaver(communicate_addr=communicate_addr, target_addr=split_host(self.target_addr), secret_key=secret_key,
+            run_slaver(communicate_addr=communicate_addr, target_addr=split_host(self.target_addr),
+                       secret_key=secret_key,
                        max_spare_count=2)
             sleep_time = 1
 
         except Exception as e:
-            logging.error(f"连接Master异常{str(e)}")
+            self.log.error(f"连接Master异常{str(e)}")
             time.sleep(sleep_time)
             if sleep_time < 600:
                 sleep_time = sleep_time * 2

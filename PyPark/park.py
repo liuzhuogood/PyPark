@@ -1,18 +1,25 @@
 import atexit
 import os
+from asyncio import Future
+
 from PyPark.Watch import Watch
 from PyPark.config import Config
-from PyPark.cons import ServerRole, Strategy
+from PyPark.cons import ServerRole, Strategy, ServerNetwork
 from PyPark.http import *
 from PyPark.nat.master import Master
 from PyPark.nat.slaver import Slaver
 from PyPark.park_exception import NoServiceException
 from PyPark.result import Result
-from PyPark.strategy import strategy_choice
+from PyPark.strategy import strategy_choice, many_strategy_choice
 from PyPark.util.json_to import JsonTo
-from PyPark.util.net import get_random_port, get_pc_name_ip, is_inuse
+from PyPark.util.net import get_random_port, get_pc_name_ip
 from PyPark.version import show_version
 from PyPark.zk import ZK
+
+"""
+ PyPark是一个高性能微服务框架,适合做大数据清洗计算等,集成内网穿透功能非常适合开发分布式微服务而不用担心网络限制.
+ 开发者:liuzhuogod@foxmail.com
+"""
 
 
 class Park(object):
@@ -39,16 +46,17 @@ class Park(object):
         :param zk_base_path:str                 # zk_base_path, 默认为 "PyPark"
         :param zk_auth_data:str                 # zk ACL 例：[("digest", "username:password")]
         :param zk_base_path:str                 # 默认："PyPark"
-        :param server_role:str                  # 服务类型 ServerRole
-        :param server_desc:str                  # 服务描述
-        :param server_network:str               # 服务网络，只有属于同一网络才可以局域网调用
+        :param server_role:str                  # 微服务类型 ServerRole
+        :param server_desc:str                  # 微服务描述
+        :param server_network:str               # 微服务网络类型，默认为"LOCAL",只有属于同一网络才可以局域网调用
         :param server_ip:str                    # 本机服务器IP，默认为连接ZK的网卡IP
         :param service_base_url:str             # service路径，默认为"/",对应zk多级目录
         :param nat_port:int                     # 内网穿透服务,启动NAT slaver进程
         :param sync_config:bool                 # 配置是否同步, 默认False
         :param api_doc:bool                     # 是否启动API DOC, 默认True
-        :param log:logging                      # 日志组件
-        :param json_to_cls:cls                  # JSON转换器,默认为 PyPark.util.json_to.JsonTo
+        :param doc_conf_dir:bool                # doc配置目录,自动生成*.default,自动读取目录所有*.yml文件.
+        :param log:logging                      # 日志
+        :param json_to_cls:JsonTo               # JSON转换器,默认为 PyPark.util.json_to.JsonTo
         """
         ip, _ = get_pc_name_ip(zk_host)
         zk_base_path = kwargs.get("zk_base_path", "PyPark")
@@ -63,7 +71,7 @@ class Park(object):
         self.server_port = kwargs.get("server_port", None)
         self.server_desc = kwargs.get("server_desc", "")
         self.log = kwargs.get("log", logging.getLogger(__name__))
-        self.server_network = kwargs.get("server_network", "LOCAL")
+        self.server_network = kwargs.get("server_network", ServerNetwork.LOCAL)
         self.api_doc = kwargs.get("api_doc", True)
         self.json_to_cls = JsonTo
         self.httpApp = HttpApp()
@@ -104,7 +112,7 @@ class Park(object):
 
         if self.server_role == ServerRole.Slaver:
             self.slaver = Slaver(target_addr=f"{self.server_ip}:{self.service_port}", nat_port=self.nat_port,
-                                 get=self.get)
+                                 get=self.get_one)
 
         self.zk.register_server()
 
@@ -157,16 +165,16 @@ class Park(object):
 
         return decorate
 
-    def get(self, api, data, **kwargs) -> Result:
+    def get_one(self, api, data, **kwargs) -> Result:
         """
-        调用策略
+        单调
         :param api:
         :param data:
-        :param strategy:str                             # 默认为'round' 可选值为[random(随机策略)|hash(hash路由策略)|round(轮询策略)|host(定向策略)|callback(自定策略)]
-        :param async_flag:bool                          # 默认为False是否异步返回
-        :param result_service:str                       # 结果将会通过原请求源的路由返回
+        :param strategy:Strategy                        # 默认为Strategy.ROUND 可选值为[random(随机策略)|hash(hash路由策略)|round(轮询策略)|host(定向策略)|callback(自定策略)]
+        :param async_flag:bool                          # 默认为False是否回调返回,结果通过"result_service"回调
+        :param result_service:str                       # 结果回调方法,将会通过原请求源的路由返回
         :param hash:str                                 # 当strategy='hash'时有效
-        :param host:str                                 # 当strategy='host'时有效
+        :param host:str                                 # 当strategy='host'时有效,支持正则
         :param callback:function(hosts, url, data)      # 必须返回一个host
         :param timeout:int                              # http time second: 30
         :param headers:dict                             # http headers
@@ -184,10 +192,37 @@ class Park(object):
             raise NoServiceException(api)
         return strategy_choice(hosts=hosts, url=api, data=data, **kwargs)
 
+    def get_many(self, api, data, **kwargs) -> [Future]:
+        """
+        多调
+        :param api:
+        :param data:
+        :param strategy:Strategy                        # 默认为Strategy.ROUND 可选值为[round(轮询策略)|host(定向策略)|DIY(自定策略)]
+        :param async_flag:bool                          # 默认为False是否回调返回,结果通过"result_service"回调
+        :param result_service:str                       # 结果回调方法,将会通过原请求源的路由返回
+        :param hash:str                                 # 当strategy='hash'时有效
+        :param host:str                                 # 当strategy='host'时有效,支持正则
+        :param callback:function(hosts, url, data)      # 必须返回一个host
+        :param timeout:int                              # http time second: 30
+        :param headers:dict                             # http headers
+        :return:
+        """
+        kwargs["server_role"] = kwargs.get("server_role", ServerRole.Visitor)
+        kwargs["server_network"] = kwargs.get("server_network", self.server_network)
+        kwargs["strategy"] = kwargs.get("strategy", Strategy.ROUND)
+        kwargs["async_flag"] = kwargs.get("async_flag", False)
+        kwargs["kwargs"] = kwargs.get("timeout", self.timeout)
+
+        hosts = self.zk.get_service_hosts(api=api, server_role=kwargs["server_role"],
+                                          server_network=kwargs["server_network"])
+        if len(hosts) == 0:
+            raise NoServiceException(api)
+        return many_strategy_choice(hosts=hosts, url=api, data=data, **kwargs)
+
     def add_nat(self, nat_port, target_addr):
         if self.server_role == ServerRole.Slaver:
             self.slaver = Slaver(target_addr=target_addr, nat_port=nat_port,
-                                 get=self.get)
+                                 get=self.get_one)
         else:
             raise Exception("只有Slaver才可以进行NAT映射")
 
