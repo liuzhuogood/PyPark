@@ -6,6 +6,7 @@ from PyPark.Watch import Watch
 from PyPark.config import Config
 from PyPark.cons import ServerRole, Strategy, ServerNetwork
 from PyPark.http import *
+from PyPark.lock import Lock
 from PyPark.nat.master import Master
 from PyPark.nat.slaver import Slaver
 from PyPark.park_exception import NoServiceException
@@ -137,11 +138,8 @@ class Park(object):
 
         return decorate
 
-    def lock(self):
-        pass
-
-    def unlock(self):
-        pass
+    def lock(self, key="lock", data="") -> Lock:
+        return Lock(zk=self.zk, key=key, data=data)
 
     def watch(self, path=None):
         """
