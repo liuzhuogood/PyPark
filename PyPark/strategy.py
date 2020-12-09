@@ -7,6 +7,7 @@ import threading
 from asyncio import Future
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from PyPark.cons import Strategy
 from PyPark.park_exception import NoServiceException, ServiceException
@@ -17,6 +18,9 @@ from PyPark.util.json_to import JsonTo
 
 _round_index_map = {}
 round_lock = threading.RLock()
+
+s_request = requests.Session()
+s_request.mount('http://', HTTPAdapter(pool_connections=10))
 
 
 def __getStrAsMD5(parmStr):
@@ -209,7 +213,7 @@ async def get(host, url, data, cut_start_end="0-0", **kwargs) -> Result:
             data = json.dumps(data, cls=JsonTo)
         if cut_start_end is not None:
             headers["__CUT_DATA_START_END"] = cut_start_end
-        r = requests.get("http://" + host + url, data=data, timeout=timeout, headers=headers)
+        r = s_request.get("http://" + host + url, data=data, timeout=timeout, headers=headers)
         if headers["Content-Type"] == "application/json":
             if r.status_code == 200:
                 return Result(**r.json())
