@@ -16,8 +16,8 @@ pass
 
 
 class ZK:
-    def __init__(self, zk_host, server_ip, service_port, zk_base_path,
-                 server_role=ServerRole.Visitor,
+    def __init__(self, zk_host, server_ip, service_port, zk_base_path, service_base_url,
+                 server_role=ServerRole.Worker,
                  server_desc="", secret_key="",
                  server_network="",
                  nat_port=None, zk_auth_data=None, log=None):
@@ -27,6 +27,7 @@ class ZK:
         self.zk = KazooClient(hosts=self.zk_host, auth_data=zk_auth_data, logger=self.log)
         self.pid = os.getpid()
         self.zk_base_path = zk_base_path
+        self.service_base_url = service_base_url
         self.nat_port = nat_port
         self.server_role = server_role
         self.secret_key = secret_key
@@ -34,12 +35,13 @@ class ZK:
         self.server_ip = server_ip
         self.server_network = server_network
         self.service_port = service_port
-        self.service_host_map = {}
         self.lock = threading.RLock()
         self.stop = False
         self.service_local_map = {}
 
         self.zk_server_node_path = None
+
+        # self.watcher_service_map()
         # self.zk.add_listener(self.connect_listener)
         # atexit.register(self.close_listening_socket_at_exit)
 
@@ -86,7 +88,7 @@ class ZK:
         for url in list(service_local_map.keys()):
             path = self.path_join("services", url)
             self.mkdir(path)
-            temp_path = self.path_join(path,
+            temp_path = self.path_join("/", path,
                                        f"[{self.server_network}]-{self.server_role}({self.server_ip}:{self.service_port})")
             service_url = f"""http://{self.server_ip}:{self.service_port}{path.lstrip("/service")}"""
             self.setTempValue(temp_path, yaml.dump({
@@ -135,36 +137,28 @@ class ZK:
             self.log.exception(e)
             raise e
 
-    def watcher_service_map(self, event=None):
-        if event is None:
-            path = self.path_join("/", self.zk_base_path, "services")
-        else:
-            path = event.path
-        self.mkdir(path)
-        self.zk.get(path=path, watch=self.watcher_service_map)
-        if event is None or event.type in ("CREATED", "CHANGED"):
-            self.cache_service_map()
+    # def watcher_service_map(self, event=None):
+    #     if event is None:
+    #         path = self.path_join("/", self.zk_base_path, "services")
+    #     else:
+    #         path = event.path
+    #     self.mkdir(path)
+    #     self.zk.get(path=path, watch=self.watcher_service_map)
+    #     if event is None or event.type in ("CREATED", "CHANGED"):
+    #         self.cache_service_map()
 
-    def cache_service_map(self):
-        try:
-            path = "services"
-            self.lock.acquire()
-            self.service_host_map = {}
-            # 取取所有的服务
-            nodes = self.get_nodes(path=path)
-            for node in nodes:
-                self.service_host_map[node] = self.get_nodes(self.path_join(path, node))
-        finally:
-            self.lock.release()
+    def get_service_nodes(self, api):
+        path = self.path_join("services", api)
+        # 取取所有的服务
+        nodes = self.get_nodes(path=path)
+        return nodes
 
-    def get_service_hosts(self, api, server_role, server_network=None):
-        try:
-            self.lock.acquire()
-            hosts = self.get_server_role_host(nodes=self.service_host_map.get(api, None), server_role=server_role,
-                                              server_network=server_network)
-            return hosts
-        finally:
-            self.lock.release()
+    def get_service_hosts(self, api: str, server_role, server_network=None):
+        if not api.startswith("/"):
+            api = "/" + api
+        hosts = self.get_server_role_host(nodes=self.get_service_nodes(api=api), server_role=server_role,
+                                          server_network=server_network)
+        return hosts
 
     def setTempValue(self, path, value: str):
         value = value.encode("utf-8")
@@ -221,7 +215,7 @@ class ZK:
     def get_server_role_host(self, server_role, server_network=None, nodes=None) -> list:
         """根据类型取出相应类型的host"""
         if nodes is None:
-            nodes = self.get_nodes("servers")
+            return []
         fs = []
         for node in nodes:
             if server_network is None:

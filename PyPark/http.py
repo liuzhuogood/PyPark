@@ -4,7 +4,6 @@ Park service
 import json
 from abc import ABC
 from concurrent.futures.thread import ThreadPoolExecutor
-
 import tornado.ioloop
 import tornado.web
 import inspect
@@ -12,7 +11,6 @@ import logging
 
 from tornado import gen
 from tornado.concurrent import run_on_executor
-
 from PyPark.park_exception import ServiceException
 from PyPark.result import Result
 
@@ -67,7 +65,13 @@ class Handler(tornado.web.RequestHandler, ABC):
             elif num == 1:
                 result = fn(body)
             elif num == 2:
-                result = fn(body, self.request.headers)
+                cut_data = self.request.headers.get("__CUT_DATA_START_END", '0-0')
+                cut_start, cut_end = cut_data.split("-")
+                result = fn(body, (int(cut_start), int(cut_end)))
+            elif num == 3:
+                cut_data = self.request.headers.get("__CUT_DATA_START_END", '0-0')
+                cut_start, cut_end = cut_data.split("-")
+                result = fn(body, (int(cut_start), int(cut_end)), self.request.headers)
             else:
                 msg = f"{fn.__name__} 参数定义错误 "
                 raise ServiceException(msg)
@@ -77,7 +81,7 @@ class Handler(tornado.web.RequestHandler, ABC):
                     self.write(
                         json.dumps(result.__dict__, cls=Handler.app.json_cls))
                 else:
-                    self.write(result)
+                    self.write(str(result))
         except Exception as e:
             logging.exception(e)
             self.write(Result.error(code=500, msg=str(e)).__dict__)

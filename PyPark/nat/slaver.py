@@ -24,7 +24,7 @@ class Slaver(object):
         try:
             # Master增加转发Nat
             secret_key = str(uuid.uuid4())
-            result = self.get(PART_API.ADD_NAT, server_role=ServerRole.Master,
+            result = self.get(PART_API.ADD_NAT, server_role=ServerRole.NatServer,
                               data={"nat_port": self.nat_port, "secret_key": secret_key,
                                     "target_addr": self.target_addr})
             if result.is_success:

@@ -68,7 +68,7 @@ class Park(object):
         self.zk_host = kwargs.get("zk_host", None)
         self.nat_port = kwargs.get("nat_port", None)
         self.sync_config = kwargs.get("sync_config", False)
-        self.server_role = kwargs.get("server_role", ServerRole.Visitor)
+        self.server_role = kwargs.get("server_role", ServerRole.Worker)
         self.server_port = kwargs.get("server_port", None)
         self.server_desc = kwargs.get("server_desc", "")
         self.log = kwargs.get("log", logging.getLogger(__name__))
@@ -77,7 +77,7 @@ class Park(object):
         self.json_to_cls = JsonTo
         self.httpApp = HttpApp()
 
-        if self.server_role == ServerRole.Slaver and self.nat_port is None:
+        if self.server_role == ServerRole.NatWorker and self.nat_port is None:
             raise Exception("用NAT服务器，必须配置一个NAT端口")
 
         self.zk_base_path = zk_base_path
@@ -100,18 +100,19 @@ class Park(object):
                      zk_auth_data=self.zk_auth_data,
                      zk_base_path=zk_base_path,
                      server_network=self.server_network,
+                     service_base_url=self.service_base_url,
                      log=self.log
                      )
         self.zk.start()
-        self.zk.watcher_service_map()
+        # self.zk.watcher_service_map()
 
         # 配置中心
         self.config = Config(self.zk, self.sync_config)
 
-        if self.server_role == ServerRole.Master:
+        if self.server_role == ServerRole.NatServer:
             self.master = Master(self)
 
-        if self.server_role == ServerRole.Slaver:
+        if self.server_role == ServerRole.NatWorker:
             self.slaver = Slaver(target_addr=f"{self.server_ip}:{self.service_port}", nat_port=self.nat_port,
                                  get=self.get_one)
 
@@ -120,16 +121,20 @@ class Park(object):
     def service(self, path=None, **kwargs):
         """
         :param path:str
-        :return:
-        """
+        :return: fn(data,cut_data, self.request.headers)
 
+        """
+        if path is not None and "/" in path:
+            raise ServiceException("path 参数暂不支持带有/的多级路径")
         def decorate(fn):
             if path is None:
                 a = str(fn.__name__)
             else:
                 a = path
             # 加上默认路径
-            a = "/" + ZK.path_join(self.service_base_url, a)
+            a = '/' + ZK.path_join(self.service_base_url, a)
+            if a.startswith("//"):
+                a = a[1:]
             if self.service_local_map.get(a, None) is None:
                 self.service_local_map[a] = {
                     "fn": fn,
@@ -191,11 +196,12 @@ class Park(object):
             raise NoServiceException(api)
         return strategy_choice(hosts=hosts, url=api, data=data, **kwargs)
 
-    def get_many(self, api, data, **kwargs) -> [Future]:
+    def get_many(self, api, data, cut_list: list = None, **kwargs) -> Result:
         """
         多调
         :param api:
         :param data:
+        :param cut_list:                                # 分片数据,必须为数组对象
         :param strategy:Strategy                        # 默认为Strategy.ROUND 可选值为[round(轮询策略)|host(定向策略)|DIY(自定策略)]
         :param async_flag:bool                          # 默认为False是否回调返回,结果通过"result_service"回调
         :param result_service:str                       # 结果回调方法,将会通过原请求源的路由返回
@@ -216,10 +222,10 @@ class Park(object):
                                           server_network=kwargs["server_network"])
         if len(hosts) == 0:
             raise NoServiceException(api)
-        return many_strategy_choice(hosts=hosts, url=api, data=data, **kwargs)
+        return many_strategy_choice(hosts=hosts, url=api, data=data, cut_list=cut_list, **kwargs)
 
     def add_nat(self, nat_port, target_addr):
-        if self.server_role == ServerRole.Slaver:
+        if self.server_role == ServerRole.NatWorker:
             self.slaver = Slaver(target_addr=target_addr, nat_port=nat_port,
                                  get=self.get_one)
         else:
