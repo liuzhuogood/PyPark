@@ -21,6 +21,7 @@ class Config(object):
         self.commits = set()
 
     def load_config(self):
+        logging.info("加载配置开始")
         try:
             self.lock.acquire()
             self.zk.mkdir(self.config_path)
@@ -44,6 +45,7 @@ class Config(object):
             logging.error("加载配置错误:" + str(e))
         finally:
             self.lock.release()
+            logging.info("加载配置完成")
 
     def config_watch(self, event):
         if event.type in ("CREATED", "CHANGED"):

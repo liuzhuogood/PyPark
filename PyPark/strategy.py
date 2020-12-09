@@ -13,6 +13,8 @@ from PyPark.park_exception import NoServiceException, ServiceException
 from PyPark.result import Result, StatusCode
 
 # key:url value:index
+from PyPark.util.json_to import JsonTo
+
 _round_index_map = {}
 round_lock = threading.RLock()
 
@@ -204,7 +206,7 @@ async def get(host, url, data, cut_start_end="0-0", **kwargs) -> Result:
             data = data.encode("utf-8")
         else:
             headers["Content-Type"] = "application/json"
-            data = json.dumps(data)
+            data = json.dumps(data, cls=JsonTo)
         if cut_start_end is not None:
             headers["__CUT_DATA_START_END"] = cut_start_end
         r = requests.get("http://" + host + url, data=data, timeout=timeout, headers=headers)

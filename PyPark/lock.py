@@ -11,11 +11,14 @@ class Lock:
         self.time = None
 
     def release(self):
-        self.zk.delete(ZK.path_join(self.zk.zk_base_path, "locks", self.key))
+        try:
+            self.zk.delete(ZK.path_join("locks", self.key))
+        except Exception:
+            pass
 
     def acquire(self):
         self.time = time.time()
-        if self.zk.setTempValue(ZK.path_join(self.zk.zk_base_path, "locks", self.key), self.data):
+        if self.zk.setTempValue(ZK.path_join("locks", self.key), self.data):
             return True
         else:
             raise Exception("LOCK acquire Fail")
