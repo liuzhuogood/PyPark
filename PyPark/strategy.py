@@ -4,11 +4,13 @@ import json
 import random
 import re
 import threading
+from asyncio import Future
 
-import httpx
-import tornado.ioloop
+import requests
+from requests.adapters import HTTPAdapter
 
 from PyPark.cons import Strategy, CONTENT_TYPE
+from PyPark.my_thread import MyThread
 from PyPark.park_exception import NoServiceException, ServiceException
 from PyPark.result import Result, StatusCode
 from PyPark.util.json_to import JsonTo
@@ -16,11 +18,10 @@ from PyPark.util.json_to import JsonTo
 # key:url value:index
 _round_index_map = {}
 round_lock = threading.RLock()
+loop = asyncio.get_event_loop()
 
-MAP_HTTP_CLIENT = {}
-
-
-# loop = asyncio.get_event_loop()
+s_request = requests.Session()
+s_request.mount('http://', HTTPAdapter(pool_connections=20))
 
 
 def __getStrAsMD5(parmStr):
@@ -114,21 +115,10 @@ def many_strategy_host(hosts, url, data, cut_list, **kwargs):
 
 
 def get_result(host, url, data, **kwargs) -> Result:
-    # loop = asyncio.get_event_loop()
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    client = MAP_HTTP_CLIENT.get(host, None)
-    if client is None:
-        client = httpx.AsyncClient()
-        MAP_HTTP_CLIENT[host] = client
-    task = asyncio.ensure_future(get(client, host, url, data, **kwargs))
-    loop.run_until_complete(asyncio.wait([task]))
-    return task.result()
+    return get(host, url, data, **kwargs)
 
 
 def get_many_results(data, cut_list, filter_hosts, kwargs, url):
-    loop = tornado.ioloop.IOLoop
-    asyncio.set_event_loop(loop)
     tasks = []
     # 数据的份数
     data_nums = 0 if cut_list is None else len(cut_list)
@@ -140,26 +130,24 @@ def get_many_results(data, cut_list, filter_hosts, kwargs, url):
     # 分片大小,为0表示不分片
     cut_size = data_nums // cut_num
     for host in filter_hosts:
-        client = MAP_HTTP_CLIENT.get(host, None)
-        if client is None:
-            client = httpx.AsyncClient()
-            MAP_HTTP_CLIENT[host] = client
         cut_end = cut_start + cut_size
         # 是不是最后的一片
         if cut_end > data_nums - cut_size:
             cut_end = data_nums
-        tasks.append(asyncio.ensure_future(get(client, host, url, data, f"{cut_start}-{cut_end}", **kwargs)))
-        # 启动事件循环并将协程放进去执行
-        # task = loop.create_task(get(host, url, data, f"{cut_start}-{cut_end}", **kwargs))
-        # tasks.append(task)
+        # 启动并放到线程里执行,本来想用协程,以后再实现
+        task = MyThread(target=get, args=(host, url, data, f"{cut_start}-{cut_end}", kwargs,),
+                        daemon=True)
+        task.start()
+        tasks.append(task)
         cut_start += cut_size
-    # 检查返回服务是否都返回了,且是否都成功了
-    loop.run_until_complete(asyncio.wait(tasks))
     results = []
     all_success = True
     msg = ""
     for task in tasks:
-        if not task.result().is_success:
+        task.join()
+    for task in tasks:
+        # 检查返回服务是否都返回了,且是否都成功了
+        if task.result() is not None and not task.result().is_success:
             all_success = False
             msg += task.result().msg + " | "
         results.append(task.result())
@@ -208,7 +196,7 @@ def strategy_hash(hosts, url, data, **kwargs) -> Result:
     return get_result(host, url, data, **kwargs)
 
 
-async def get(client, host, url, data, cut_start_end="0-0", **kwargs) -> Result:
+def get(host, url, data, cut_start_end="0-0", kwargs={}) -> Result:
     try:
         if not url.startswith("/"):
             url = "/" + url
@@ -224,13 +212,10 @@ async def get(client, host, url, data, cut_start_end="0-0", **kwargs) -> Result:
             data = json.dumps(data, cls=JsonTo)
         if cut_start_end is not None:
             headers["__CUT_DATA_START_END"] = cut_start_end
-        r = await client.post("http://" + host + url,
-                              data=data,
-                              timeout=timeout,
-                              headers=headers)
+        r = s_request.get("http://" + host + url, data=data, timeout=timeout, headers=headers)
         if headers["Content-Type"] == CONTENT_TYPE.JSON:
             if r.status_code == 200:
                 return Result(**r.json())
         return Result.error(code=str(r.status_code), msg=r.text, data=r.text)
     except Exception as e:
-        return Result.error(code=StatusCode.SYSTEM_ERROR, msg=str(e), data=str(e))
+        return Result.error(code=StatusCode.SYSTEM_ERROR, msg=str(e))

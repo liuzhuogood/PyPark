@@ -9,7 +9,7 @@ from PyPark.nat.master import Master
 from PyPark.nat.slaver import Slaver
 from PyPark.park_exception import NoServiceException
 from PyPark.result import Result
-from PyPark.strategy import strategy_choice, many_strategy_choice, MAP_HTTP_CLIENT
+from PyPark.strategy import strategy_choice, many_strategy_choice
 from PyPark.util.json_to import JsonTo
 from PyPark.util.net import get_random_port, get_pc_name_ip
 from PyPark.version import show_version
@@ -250,10 +250,4 @@ class Park(object):
 
     def close(self):
         self.zk.end()
-        try:
-            for http_client in list(MAP_HTTP_CLIENT.values()):
-                if http_client.is_close:
-                    http_client.aclose()
-        except Exception:
-            pass
         self.httpApp.close()
