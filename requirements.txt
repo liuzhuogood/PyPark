@@ -3,6 +3,6 @@ PyYAML~=5.3.1
 kazoo~=2.8.0
 ruamel.yaml
 PyPark~=0.0.5
-redis~=3.3.11
+redis~=3.5.3
 setuptools~=40.8.0
 httpx~=0.16.1

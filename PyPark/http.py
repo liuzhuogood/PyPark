@@ -11,6 +11,8 @@ import logging
 
 from tornado import gen
 from tornado.concurrent import run_on_executor
+
+from PyPark.cons import CONTENT_TYPE
 from PyPark.park_exception import ServiceException
 from PyPark.result import Result
 
@@ -52,8 +54,8 @@ class Handler(tornado.web.RequestHandler, ABC):
             fn = m["fn"]
             args = inspect.getfullargspec(fn)
             num = len(args.args)
-            contentType = self.request.headers.get("Content-Type", "")
-            if contentType == "application/json":
+            contentType = self.request.headers.get("Content-Type", "").lower()
+            if contentType == CONTENT_TYPE.JSON:
                 if len(self.request.body) == 0:
                     body = {}
                 else:

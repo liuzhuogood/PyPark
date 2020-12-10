@@ -1,4 +1,3 @@
-
 class ServerNetwork:
     LOCAL = "LOCAL"
     NAT = "NAT"
@@ -26,3 +25,8 @@ class Strategy:
     HASH = "HASH"
     HOST = "HOST"
     DIY = "DIY"
+
+
+class CONTENT_TYPE:
+    TEXT = "text/plain;charset=UTF-8"
+    JSON = "application/json;charset=UTF-8"

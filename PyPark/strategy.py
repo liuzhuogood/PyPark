@@ -6,7 +6,7 @@ import re
 import threading
 
 import httpx
-from PyPark.cons import Strategy
+from PyPark.cons import Strategy, CONTENT_TYPE
 from PyPark.park_exception import NoServiceException, ServiceException
 from PyPark.result import Result, StatusCode
 from PyPark.util.json_to import JsonTo
@@ -14,6 +14,8 @@ from PyPark.util.json_to import JsonTo
 # key:url value:index
 _round_index_map = {}
 round_lock = threading.RLock()
+
+MAP_HTTP_CLIENT = {}
 
 
 # loop = asyncio.get_event_loop()
@@ -113,7 +115,10 @@ def get_result(host, url, data, **kwargs) -> Result:
     loop = asyncio.get_event_loop()
     # loop = asyncio.new_event_loop()
     # asyncio.set_event_loop(loop)
-    client = httpx.AsyncClient()
+    client = MAP_HTTP_CLIENT.get(host, None)
+    if client is None:
+        client = httpx.AsyncClient()
+        MAP_HTTP_CLIENT[host] = client
     task = asyncio.ensure_future(get(client, host, url, data, **kwargs))
     loop.run_until_complete(asyncio.wait([task]))
     return task.result()
@@ -122,7 +127,6 @@ def get_result(host, url, data, **kwargs) -> Result:
 def get_many_results(data, cut_list, filter_hosts, kwargs, url):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    client = httpx.AsyncClient()
     tasks = []
     # 数据的份数
     data_nums = 0 if cut_list is None else len(cut_list)
@@ -134,6 +138,10 @@ def get_many_results(data, cut_list, filter_hosts, kwargs, url):
     # 分片大小,为0表示不分片
     cut_size = data_nums // cut_num
     for host in filter_hosts:
+        client = MAP_HTTP_CLIENT.get(host, None)
+        if client is None:
+            client = httpx.AsyncClient()
+            MAP_HTTP_CLIENT[host] = client
         cut_end = cut_start + cut_size
         # 是不是最后的一片
         if cut_end > data_nums - cut_size:
@@ -204,13 +212,13 @@ async def get(client, host, url, data, cut_start_end="0-0", **kwargs) -> Result:
             url = "/" + url
         headers = kwargs.get("headers", {})
         timeout = kwargs.get("timeout", 30)
-        headers["Content-Type"] = "text/plain"
+        headers["Content-Type"] = CONTENT_TYPE.TEXT
         if isinstance(data, int):
             data = str(data)
         if isinstance(data, str):
             data = data.encode("utf-8")
         else:
-            headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = CONTENT_TYPE.JSON
             # data = json.dumps(data, cls=JsonTo)
         if cut_start_end is not None:
             headers["__CUT_DATA_START_END"] = cut_start_end
@@ -218,7 +226,7 @@ async def get(client, host, url, data, cut_start_end="0-0", **kwargs) -> Result:
                               data=data,
                               timeout=timeout,
                               headers=headers)
-        if headers["Content-Type"] == "application/json":
+        if headers["Content-Type"] == CONTENT_TYPE.JSON:
             if r.status_code == 200:
                 return Result(**r.json())
         return Result.error(code=str(r.status_code), msg=r.text, data=r.text)
