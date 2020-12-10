@@ -1,14 +1,8 @@
-import asyncio
 import hashlib
 import json
 import random
 import re
 import threading
-from asyncio import Future
-
-import requests
-from requests.adapters import HTTPAdapter
-
 from PyPark.cons import Strategy, CONTENT_TYPE
 from PyPark.my_thread import MyThread
 from PyPark.park_exception import NoServiceException, ServiceException
@@ -18,10 +12,6 @@ from PyPark.util.json_to import JsonTo
 # key:url value:index
 _round_index_map = {}
 round_lock = threading.RLock()
-loop = asyncio.get_event_loop()
-
-s_request = requests.Session()
-s_request.mount('http://', HTTPAdapter(pool_connections=20))
 
 
 def __getStrAsMD5(parmStr):
@@ -33,62 +23,62 @@ def __getStrAsMD5(parmStr):
     return m.hexdigest()
 
 
-def strategy_choice(hosts, url, data, **kwargs) -> Result:
+def strategy_choice(hosts, url, data, s_request, **kwargs) -> Result:
     strategy = kwargs["strategy"]
     if strategy == Strategy.ROUND:
-        return strategy_round(hosts, url, data, **kwargs)
+        return strategy_round(hosts, url, data, s_request, **kwargs)
     elif strategy == Strategy.RANDOM:
-        return strategy_random(hosts, url, data, **kwargs)
+        return strategy_random(hosts, url, data, s_request, **kwargs)
     elif strategy == Strategy.HASH:
-        return strategy_hash(hosts, url, data, **kwargs)
+        return strategy_hash(hosts, url, data, s_request, **kwargs)
     elif strategy == Strategy.HOST:
-        return strategy_host(hosts, url, data, **kwargs)
+        return strategy_host(hosts, url, data, s_request, **kwargs)
     elif strategy == Strategy.DIY:
-        return strategy_diy(hosts, url, data, **kwargs)
+        return strategy_diy(hosts, url, data, s_request, **kwargs)
     else:
         Exception(f"不支持的策略-{strategy}")
 
 
-def many_strategy_choice(hosts, url, data, cut_list, **kwargs) -> Result:
+def many_strategy_choice(hosts, url, data, cut_list, s_request, **kwargs) -> Result:
     strategy = kwargs["strategy"]
     if strategy == Strategy.ROUND:
-        return many_strategy_round(hosts, url, data, cut_list, **kwargs)
+        return many_strategy_round(hosts, url, data, cut_list, s_request, **kwargs)
     elif strategy == Strategy.HOST:
-        return many_strategy_host(hosts, url, data, cut_list, **kwargs)
+        return many_strategy_host(hosts, url, data, cut_list, s_request, **kwargs)
     elif strategy == Strategy.DIY:
-        return many_strategy_diy(hosts, url, data, cut_list, **kwargs)
+        return many_strategy_diy(hosts, url, data, cut_list, s_request, **kwargs)
     else:
         Exception(f"不支持的策略-{strategy}")
 
 
-def strategy_random(hosts, url, data, **kwargs) -> Result:
+def strategy_random(hosts, url, data, s_request, **kwargs) -> Result:
     """随机策略"""
     host = random.choice(hosts)
-    return get_result(host, url, data, **kwargs)
+    return get_result(host, url, data, s_request, **kwargs)
 
 
-def strategy_diy(hosts, url, data, **kwargs) -> Result:
+def strategy_diy(hosts, url, data, s_request, **kwargs) -> Result:
     """回调策略"""
     callback = kwargs.get("callback", None)
     if callback is None:
         raise ServiceException("回调策略回调函数为空")
     host = callback(hosts, url, data)
-    return get_result(host, url, data, **kwargs)
+    return get_result(host, url, data, s_request, **kwargs)
 
 
-def many_strategy_diy(hosts, url, data, cut_list, **kwargs):
+def many_strategy_diy(hosts, url, data, cut_list, s_request, **kwargs):
     """回调策略"""
     callback = kwargs.get("callback", None)
     if callback is None:
         raise ServiceException("回调策略回调函数为空")
     hosts = callback(hosts, url, data)
     if isinstance(hosts, list):
-        return get_many_results(data, cut_list, hosts, kwargs, url)
+        return get_many_results(data, cut_list, hosts, s_request, kwargs, url)
     else:
         raise ServiceException("多调必须返回hosts,列表形式")
 
 
-def strategy_host(hosts, url, data, **kwargs) -> Result:
+def strategy_host(hosts, url, data, s_request, **kwargs) -> Result:
     """主机策略"""
     re_host = kwargs.get("host", "")
     host = None
@@ -98,10 +88,10 @@ def strategy_host(hosts, url, data, **kwargs) -> Result:
             break
     if host is None:
         raise NoServiceException("找不到匹配的主机")
-    return get_result(host, url, data, **kwargs)
+    return get_result(host, url, data, s_request, **kwargs)
 
 
-def many_strategy_host(hosts, url, data, cut_list, **kwargs):
+def many_strategy_host(hosts, url, data, cut_list, s_request, **kwargs):
     """主机策略"""
     re_host = kwargs.get("host", "")
     host = None
@@ -111,14 +101,14 @@ def many_strategy_host(hosts, url, data, cut_list, **kwargs):
             filter_hosts.append(h)
     if len(filter_hosts) == 0:
         raise NoServiceException("找不到匹配的主机")
-    return get_many_results(data, cut_list, filter_hosts, kwargs, url)
+    return get_many_results(data, cut_list, filter_hosts, s_request, kwargs, url)
 
 
-def get_result(host, url, data, **kwargs) -> Result:
-    return get(host, url, data, **kwargs)
+def get_result(host, url, data, s_request, **kwargs) -> Result:
+    return get(host, url, data, s_request, **kwargs)
 
 
-def get_many_results(data, cut_list, filter_hosts, kwargs, url):
+def get_many_results(data, cut_list, filter_hosts, s_request, kwargs, url):
     tasks = []
     # 数据的份数
     data_nums = 0 if cut_list is None else len(cut_list)
@@ -135,7 +125,7 @@ def get_many_results(data, cut_list, filter_hosts, kwargs, url):
         if cut_end > data_nums - cut_size:
             cut_end = data_nums
         # 启动并放到线程里执行,本来想用协程,以后再实现
-        task = MyThread(target=get, args=(host, url, data, f"{cut_start}-{cut_end}", kwargs,),
+        task = MyThread(target=get, args=(host, url, data, f"{cut_start}-{cut_end}", s_request, kwargs,),
                         daemon=True)
         task.start()
         tasks.append(task)
@@ -156,7 +146,7 @@ def get_many_results(data, cut_list, filter_hosts, kwargs, url):
     return Result.success(results)
 
 
-def strategy_round(hosts, url, data, **kwargs) -> Result:
+def strategy_round(hosts, url, data, s_request, **kwargs) -> Result:
     """轮询策略"""
     try:
         round_lock.acquire()
@@ -168,15 +158,15 @@ def strategy_round(hosts, url, data, **kwargs) -> Result:
         _round_index_map[url] = index
     finally:
         round_lock.release()
-    return get_result(host, url, data, **kwargs)
+    return get_result(host, url, data, s_request, **kwargs)
 
 
-def many_strategy_round(hosts, url, data, cut_list, **kwargs):
+def many_strategy_round(hosts, url, data, cut_list, s_request, **kwargs):
     """轮询策略"""
-    return get_many_results(data, cut_list, hosts, kwargs, url)
+    return get_many_results(data, cut_list, hosts, s_request, kwargs, url)
 
 
-def strategy_hash(hosts, url, data, **kwargs) -> Result:
+def strategy_hash(hosts, url, data, s_request, **kwargs) -> Result:
     """Hash策略"""
     s_hash = kwargs.get("hash", None)
     if s_hash is None:
@@ -193,10 +183,12 @@ def strategy_hash(hosts, url, data, **kwargs) -> Result:
     for h in hs:
         if h > s_hash:
             host = hosts_hash[h]
-    return get_result(host, url, data, **kwargs)
+    return get_result(host, url, data, s_request, **kwargs)
 
 
-def get(host, url, data, cut_start_end="0-0", kwargs={}) -> Result:
+def get(host, url, data, cut_start_end="0-0", s_request=None, kwargs=None) -> Result:
+    if kwargs is None:
+        kwargs = {}
     try:
         if not url.startswith("/"):
             url = "/" + url

@@ -1,5 +1,9 @@
 import atexit
 import os
+
+import requests
+from requests.adapters import HTTPAdapter
+
 from PyPark.Watch import Watch
 from PyPark.config import Config
 from PyPark.cons import ServerRole, Strategy, ServerNetwork
@@ -22,7 +26,8 @@ from PyPark.zk import ZK
 
 
 class Park(object):
-    MAP_HTTP_CLIENT = {}
+    s_request = requests.Session()
+    s_request.mount('http://', HTTPAdapter(pool_connections=20))
 
     def __enter__(self):
         return self
@@ -194,7 +199,7 @@ class Park(object):
                                           server_network=kwargs["server_network"])
         if len(hosts) == 0:
             raise NoServiceException(api)
-        return strategy_choice(hosts=hosts, url=api, data=data, **kwargs)
+        return strategy_choice(hosts=hosts, url=api, data=data, s_request=Park.s_request, **kwargs)
 
     def get_many(self, api, data, cut_list: list = None, **kwargs) -> Result:
         """
@@ -222,7 +227,8 @@ class Park(object):
                                           server_network=kwargs["server_network"])
         if len(hosts) == 0:
             raise NoServiceException(api)
-        return many_strategy_choice(hosts=hosts, url=api, data=data, cut_list=cut_list, **kwargs)
+        return many_strategy_choice(hosts=hosts, url=api, data=data, cut_list=cut_list, s_request=Park.s_request,
+                                    **kwargs)
 
     def add_nat(self, nat_port, target_addr):
         if self.server_role == ServerRole.NatWorker:
@@ -251,3 +257,4 @@ class Park(object):
     def close(self):
         self.zk.end()
         self.httpApp.close()
+        Park.s_request.close()
