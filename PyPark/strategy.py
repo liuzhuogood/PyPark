@@ -6,6 +6,8 @@ import re
 import threading
 
 import httpx
+import tornado.ioloop
+
 from PyPark.cons import Strategy, CONTENT_TYPE
 from PyPark.park_exception import NoServiceException, ServiceException
 from PyPark.result import Result, StatusCode
@@ -125,7 +127,7 @@ def get_result(host, url, data, **kwargs) -> Result:
 
 
 def get_many_results(data, cut_list, filter_hosts, kwargs, url):
-    loop = asyncio.new_event_loop()
+    loop = tornado.ioloop.IOLoop
     asyncio.set_event_loop(loop)
     tasks = []
     # 数据的份数
