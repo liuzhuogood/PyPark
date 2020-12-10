@@ -57,7 +57,7 @@ class Handler(tornado.web.RequestHandler, ABC):
             contentType = self.request.headers.get("Content-Type", "").lower()
             if contentType == CONTENT_TYPE.JSON:
                 if len(self.request.body) == 0:
-                    body = {}
+                    body = None
                 else:
                     body = json.loads(str(self.request.body, encoding='utf-8'))
             else:

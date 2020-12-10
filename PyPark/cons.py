@@ -28,5 +28,5 @@ class Strategy:
 
 
 class CONTENT_TYPE:
-    TEXT = "text/plain;charset=UTF-8"
-    JSON = "application/json;charset=UTF-8"
+    TEXT = "text/plain;charset=utf-8"
+    JSON = "application/json;charset=utf-8"

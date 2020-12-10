@@ -112,9 +112,9 @@ def many_strategy_host(hosts, url, data, cut_list, **kwargs):
 
 
 def get_result(host, url, data, **kwargs) -> Result:
-    loop = asyncio.get_event_loop()
-    # loop = asyncio.new_event_loop()
-    # asyncio.set_event_loop(loop)
+    # loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     client = MAP_HTTP_CLIENT.get(host, None)
     if client is None:
         client = httpx.AsyncClient()
@@ -219,7 +219,7 @@ async def get(client, host, url, data, cut_start_end="0-0", **kwargs) -> Result:
             data = data.encode("utf-8")
         else:
             headers["Content-Type"] = CONTENT_TYPE.JSON
-            # data = json.dumps(data, cls=JsonTo)
+            data = json.dumps(data, cls=JsonTo)
         if cut_start_end is not None:
             headers["__CUT_DATA_START_END"] = cut_start_end
         r = await client.post("http://" + host + url,
