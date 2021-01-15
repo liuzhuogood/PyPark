@@ -20,7 +20,7 @@ class ZK:
                  server_role=ServerRole.Worker,
                  server_desc="", secret_key="",
                  server_network="",
-                 nat_port=None, zk_auth_data=None, log=None):
+                 nat_port=None, zk_auth_data=None, log=None, reconnect=None):
         self.log = log or logging.getLogger(__name__)
         self.root = "/"
         self.zk_host = zk_host
@@ -37,38 +37,29 @@ class ZK:
         self.service_port = service_port
         self.lock = threading.RLock()
         self.stop = False
-        self.service_local_map = {}
+        self.LOST = False
 
         self.zk_server_node_path = None
 
         # self.watcher_service_map()
-        # self.zk.add_listener(self.connect_listener)
+        self.zk.add_listener(self.connect_listener)
+        self.reconnect = reconnect
+
         # atexit.register(self.close_listening_socket_at_exit)
 
     def connect_listener(self, state):
         if state == KazooState.LOST:
             self.log.warning("会话超时:KazooState.LOST")
-            s_time = 1
-            while not self.stop:
-                try:
-                    self.start()
-                    self.register_service(self.service_local_map)
-                    try:
-                        self.register_server()
-                    except Exception:
-                        pass
-                    s_time = 0.1
-                    self.log.warning("会话超时:重建会话完成!")
-                    break
-                except Exception as e:
-                    s_time = 2 * s_time
-                    self.log.exception(f"ZK连接出错{str(e)},wait {s_time} second...")
-                    time.sleep(s_time)
-
+            self.LOST = True
         elif state == KazooState.SUSPENDED:
+            self.LOST = True
             self.log.warning("会话超时:KazooState.SUSPENDED")
         elif state == KazooState.CONNECTED:
-            self.log.warning("会话超时:KazooState.CONNECTED")
+            if self.LOST:
+                self.LOST = False
+                self.log.warning("断线重连")
+                time.sleep(5)
+                threading.Thread(target=self.reconnect).start()
         else:
             self.log.warning("会话超时:非法状态")
 
@@ -84,13 +75,12 @@ class ZK:
             pass
 
     def register_service(self, service_local_map):
-        self.service_local_map = service_local_map
         for url in list(service_local_map.keys()):
             path = self.path_join("services", url)
             self.mkdir(path)
             temp_path = self.path_join("/", path,
                                        f"[{self.server_network}]-{self.server_role}({self.server_ip}:{self.service_port})")
-            service_url = f"""http://{self.server_ip}:{self.service_port}{path.lstrip("/service")}"""
+            service_url = f"""http://{self.server_ip}:{self.service_port}/{path.lstrip("/service")}"""
             self.setTempValue(temp_path, yaml.dump({
                 "server_network": self.server_network,
                 "ip": self.server_ip,
@@ -116,7 +106,6 @@ class ZK:
         try:
             name = f"[{self.server_network}]-{self.server_role}({self.server_ip}:{self.service_port})"
             self.zk_server_node_path = self.path_join("servers", name)
-            self.mkdir(os.path.dirname(self.zk_server_node_path))
             b = self.setTempValue(self.zk_server_node_path, yaml.dump({
                 "ip": self.server_ip,
                 "port": self.service_port,
@@ -163,6 +152,11 @@ class ZK:
     def setTempValue(self, path, value: str):
         value = value.encode("utf-8")
         path = self.path_join(self.root, self.zk_base_path, path)
+        # 先删除一下
+        # try:
+        #     self.zk.delete(path)
+        # except Exception:
+        #     pass
         if not self.zk.exists(path=path):
             self.zk.create(path=path, value=value, ephemeral=True, makepath=True)
             return True
@@ -188,10 +182,10 @@ class ZK:
         if self.zk.exists(path=path):
             self.zk.delete(path)
 
-    def get(self, path, watch=None):
+    def get(self, path, watch=None, default=None):
         path = self.path_join(self.zk_base_path, path)
         if not self.zk.exists(path=path):
-            return None
+            return default
         if watch is not None:
             data = self.zk.get(path=path, watch=watch)
         else:

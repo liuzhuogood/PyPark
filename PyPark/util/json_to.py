@@ -1,5 +1,6 @@
 import datetime
 import json
+from decimal import Decimal
 
 
 class JsonTo(json.JSONEncoder):
@@ -9,4 +10,8 @@ class JsonTo(json.JSONEncoder):
         elif isinstance(obj, datetime.date):
             return obj.strftime('%Y-%m-%d')
         else:
-            return json.JSONEncoder.default(self, obj)
+            if isinstance(obj, Decimal):
+                return float(obj)
+            if isinstance(obj, (str, int, float, bool, dict)):
+                return json.JSONEncoder.default(self, obj)
+            return obj.__dict__

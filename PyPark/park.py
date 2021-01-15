@@ -27,7 +27,7 @@ from PyPark.zk import ZK
 
 class Park(object):
     s_request = requests.Session()
-    s_request.mount('http://', HTTPAdapter(pool_connections=20))
+    s_request.mount('http://', HTTPAdapter(pool_connections=60, max_retries=200))
 
     def __enter__(self):
         return self
@@ -55,7 +55,8 @@ class Park(object):
         :param server_desc:str                  # 微服务描述
         :param server_network:str               # 微服务网络类型，默认为"LOCAL",只有属于同一网络才可以局域网调用
         :param server_ip:str                    # 本机服务器IP，默认为连接ZK的网卡IP
-        :param service_base_url:str             # service路径，默认为"/",对应zk多级目录
+        :param server_port:str                  # server_port
+        :param base_url:str                     # service路径，默认为"/",对应zk多级目录
         :param nat_port:int                     # 内网穿透服务,启动NAT slaver进程
         :param sync_config:bool                 # 配置是否同步, 默认False
         :param api_doc:bool                     # 是否启动API DOC, 默认True
@@ -80,6 +81,7 @@ class Park(object):
         self.api_doc = kwargs.get("api_doc", True)
         self.json_to_cls = JsonTo
         self.httpApp = HttpApp()
+        self.handlers = []
 
         if self.server_role == ServerRole.NatWorker and self.nat_port is None:
             raise Exception("用NAT服务器，必须配置一个NAT端口")
@@ -105,7 +107,8 @@ class Park(object):
                      zk_base_path=zk_base_path,
                      server_network=self.server_network,
                      service_base_url=self.service_base_url,
-                     log=self.log
+                     log=self.log,
+                     reconnect=self.zk_reconnect
                      )
         self.zk.start()
         # self.zk.watcher_service_map()
@@ -121,6 +124,12 @@ class Park(object):
                                  get=self.get_one)
 
         self.zk.register_server()
+
+    def zk_reconnect(self):
+        self.config = Config(self.zk, self.sync_config)
+        self.zk.register_server()
+        self.zk.register_service(self.service_local_map)
+        self.log.warning("断线重连完成")
 
     def service(self, path=None, **kwargs):
         """
@@ -249,7 +258,7 @@ class Park(object):
         self.log.info(f"{self.server_role} PyPark Start By {self.server_ip}:{self.service_port}")
         try:
             self.httpApp.json_cls = self.json_to_cls
-            self.httpApp.run("0.0.0.0", self.service_port, url_map=self.service_local_map)
+            self.httpApp.run("0.0.0.0", self.service_port, url_map=self.service_local_map, handlers=self.handlers)
         except KeyboardInterrupt:
             self.log.info("手动停止")
             self.close()

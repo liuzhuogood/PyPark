@@ -21,12 +21,13 @@ class HttpApp:
     def __init__(self, json_cls=None):
         self.json_cls = json_cls
 
-    def __make(self, service_map: dict):
+    def __make(self, service_map: dict, handlers):
         apps = []
         Handler.app = self
         Handler.service_map = service_map
         for url in list(service_map.keys()):
             apps.append((url, Handler))
+        apps += handlers
         return tornado.web.Application(apps)
 
     @staticmethod
@@ -36,26 +37,29 @@ class HttpApp:
         except Exception:
             pass
 
-    def run(self, ip, port, url_map):
-        app = self.__make(url_map)
+    def run(self, ip, port, url_map, handlers):
+        app = self.__make(url_map, handlers)
         app.listen(address=ip, port=port)
         tornado.ioloop.IOLoop.current().start()
 
 
 class Handler(tornado.web.RequestHandler, ABC):
-    executor = ThreadPoolExecutor(20)  # 起线程池，由当前RequestHandler持有
+    executor = ThreadPoolExecutor(200)  # 起线程池，由当前RequestHandler持有
     service_map = {}
     app: HttpApp = None
 
     @run_on_executor
     def _do_request(self):
         try:
+            # self.set_header("Access-Control-Allow-Origin", "*")
+            # self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+            # self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
             m = Handler.service_map.get(self.request.path, None)
             fn = m["fn"]
             args = inspect.getfullargspec(fn)
             num = len(args.args)
             contentType = self.request.headers.get("Content-Type", "").lower()
-            if contentType == CONTENT_TYPE.JSON:
+            if contentType in CONTENT_TYPE.JSON:
                 if len(self.request.body) == 0:
                     body = None
                 else:
@@ -79,7 +83,7 @@ class Handler(tornado.web.RequestHandler, ABC):
                 raise ServiceException(msg)
             if result is not None:
                 if isinstance(result, Result):
-                    self.set_header("Content-Type", contentType)
+                    self.set_header("Content-Type", CONTENT_TYPE.JSON)
                     self.write(
                         json.dumps(result.__dict__, cls=Handler.app.json_cls))
                 else:

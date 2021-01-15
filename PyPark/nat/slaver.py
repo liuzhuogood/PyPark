@@ -43,7 +43,7 @@ class Slaver(object):
             sleep_time = 1
 
         except Exception as e:
-            self.log.error(f"连接Master异常{str(e)}")
+            self.log.exception(f"连接Master异常{str(e)}")
             time.sleep(sleep_time)
             if sleep_time < 600:
                 sleep_time = sleep_time * 2

@@ -10,6 +10,8 @@ from PyPark.result import Result, StatusCode
 from PyPark.util.json_to import JsonTo
 
 # key:url value:index
+from PyPark.util.util import cut_list_num
+
 _round_index_map = {}
 round_lock = threading.RLock()
 
@@ -73,7 +75,7 @@ def many_strategy_diy(hosts, url, data, cut_list, s_request, **kwargs):
         raise ServiceException("回调策略回调函数为空")
     hosts = callback(hosts, url, data)
     if isinstance(hosts, list):
-        return get_many_results(data, cut_list, hosts, s_request, kwargs, url)
+        return get_many_results(data, cut_list, hosts, s_request, url, **kwargs)
     else:
         raise ServiceException("多调必须返回hosts,列表形式")
 
@@ -94,42 +96,31 @@ def strategy_host(hosts, url, data, s_request, **kwargs) -> Result:
 def many_strategy_host(hosts, url, data, cut_list, s_request, **kwargs):
     """主机策略"""
     re_host = kwargs.get("host", "")
-    host = None
     filter_hosts = []
     for h in hosts:
         if re.match(re_host, h):
             filter_hosts.append(h)
     if len(filter_hosts) == 0:
         raise NoServiceException("找不到匹配的主机")
-    return get_many_results(data, cut_list, filter_hosts, s_request, kwargs, url)
+    return get_many_results(data, cut_list, filter_hosts, s_request, url, **kwargs)
 
 
 def get_result(host, url, data, s_request, **kwargs) -> Result:
-    return get(host, url, data, s_request, **kwargs)
+    return get(host=host, url=url, data=data, s_request=s_request, kwargs=kwargs)
 
 
-def get_many_results(data, cut_list, filter_hosts, s_request, kwargs, url):
+def get_many_results(data, cut_list, filter_hosts, s_request, url, **kwargs):
     tasks = []
     # 数据的份数
-    data_nums = 0 if cut_list is None else len(cut_list)
-
-    # 数据分片开始
-    cut_start = 0
-    # 分片的数量
-    cut_num = len(filter_hosts)
-    # 分片大小,为0表示不分片
-    cut_size = data_nums // cut_num
-    for host in filter_hosts:
-        cut_end = cut_start + cut_size
-        # 是不是最后的一片
-        if cut_end > data_nums - cut_size:
-            cut_end = data_nums
-        # 启动并放到线程里执行,本来想用协程,以后再实现
-        task = MyThread(target=get, args=(host, url, data, f"{cut_start}-{cut_end}", s_request, kwargs,),
+    aa = cut_list_num(data_list=cut_list, cut_num=len(filter_hosts))
+    host_index = 0
+    for a in aa:
+        task = MyThread(target=get,
+                        args=(filter_hosts[host_index], url, data, f"{a[0]}-{a[1]}", s_request, kwargs,),
                         daemon=True)
         task.start()
         tasks.append(task)
-        cut_start += cut_size
+        host_index += 1
     results = []
     all_success = True
     msg = ""
@@ -163,7 +154,7 @@ def strategy_round(hosts, url, data, s_request, **kwargs) -> Result:
 
 def many_strategy_round(hosts, url, data, cut_list, s_request, **kwargs):
     """轮询策略"""
-    return get_many_results(data, cut_list, hosts, s_request, kwargs, url)
+    return get_many_results(data, cut_list, hosts, s_request, url, **kwargs)
 
 
 def strategy_hash(hosts, url, data, s_request, **kwargs) -> Result:
@@ -205,7 +196,7 @@ def get(host, url, data, cut_start_end="0-0", s_request=None, kwargs=None) -> Re
         if cut_start_end is not None:
             headers["__CUT_DATA_START_END"] = cut_start_end
         r = s_request.get("http://" + host + url, data=data, timeout=timeout, headers=headers)
-        if headers["Content-Type"] == CONTENT_TYPE.JSON:
+        if headers["Content-Type"] in CONTENT_TYPE.JSON:
             if r.status_code == 200:
                 return Result(**r.json())
         return Result.error(code=str(r.status_code), msg=r.text, data=r.text)

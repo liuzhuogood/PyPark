@@ -61,9 +61,9 @@ class Config(object):
                     for s in sub_keys:
                         m = m.get(s, None)
                         if m is None:
-                            return default_value
+                            break
                     if m is None:
-                        return default_value
+                        continue
                     return m
         finally:
             self.lock.release()
