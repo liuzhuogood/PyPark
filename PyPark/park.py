@@ -4,7 +4,7 @@ import random
 
 from PyPark.config import Config
 from PyPark.lock import Lock
-from PyPark.nat.master import Master
+from PyPark.nat.master import addNat
 from PyPark.nat.slaver import Slaver
 from PyPark.park_zk import ParkZK
 from PyPark.rest import Rest
@@ -83,6 +83,7 @@ class Park(object):
         self.log = kwargs.get("log", logging.getLogger(__name__))
         self.rpc_timeout = kwargs.get("rpc_timeout", 30)
         self.is_master = kwargs.get("is_master", False)
+        self.broadcast = kwargs.get("broadcast", True)
         self.data = {}
         self.slavers = []
         # zookeeper
@@ -108,11 +109,10 @@ class Park(object):
         # 配置中心
         self.config = Config(self.zk, self.watch_config, self.watch_configs)
         if self.is_master:
-            self.master = Master(self, self.log)
-            self.__register(self.master.addNat)
+            self.__register(addNat)
 
         if self.nat_port:
-            self.slavers.append(Slaver(target_addr=f"{self.ip}:{self.port}", nat_port=self.nat_port,
+            self.slavers.append(Slaver(target_addr=f"{self.ip}:{self.port}", nat_ip=self.nat_ip, nat_port=self.nat_port,
                                        get=self.call))
 
     def watch(self, path=None, absolute=False):
@@ -126,7 +126,10 @@ class Park(object):
         if callable(path):
             a = path.__name__
         else:
-            a = path
+            if path:
+                a = path
+            else:
+                raise Exception("path is not null")
 
         def decorate(fn):
             watch_path = a
@@ -171,10 +174,14 @@ class Park(object):
         return Lock(zk=self.zk, key=key, data=data)
 
     def call(self, method, data, hosts=None, **kwargs):
+        if hosts is None:
+            hosts = self.zk.get_rest_nodes(method)
         hosts = random.choice(hosts)
         return self.rest.call(method=method, data=data, hosts=hosts)
 
     def call_all(self, method, data, hosts=None) -> list:
+        if hosts is None or len(hosts) == 0:
+            hosts = self.zk.get_rest_nodes(method)
         return self.rest.call(method=method, data=data, hosts=hosts)
 
     def add_nat(self, nat_port, target_addr):
@@ -188,7 +195,7 @@ class Park(object):
         print_infos(self)
         try:
             self.rest.json_cls = self.json_to_cls
-            self.rest.run(self.ip, self.port, self.handlers)
+            self.rest.run("0.0.0.0" if self.broadcast else self.ip, self.port, self.handlers)
 
 
 

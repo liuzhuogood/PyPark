@@ -91,8 +91,6 @@ class Rest:
             return Result.error(code=str(r.status_code), msg=f"call {host}/{method} error: {r.text}", data=r.text)
 
     def call(self, method, data, hosts=None):
-        if hosts is None or len(hosts) == 0:
-            hosts = self.zk.get_rest_nodes(method)
         if isinstance(hosts, str):
             return self.__requests(hosts, method, data)
         elif isinstance(hosts, list):

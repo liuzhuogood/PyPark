@@ -8,13 +8,14 @@ from PyPark.shootback.slaver import run_slaver, threading, split_host
 
 class Slaver(object):
 
-    def __init__(self, target_addr, nat_port, get, log=None):
+    def __init__(self, target_addr, nat_ip, nat_port, get, log=None):
         self.log = log or logging.getLogger(__name__)
+        self.nat_ip = nat_ip
         self.nat_port = nat_port
         self.target_addr = target_addr
         self.get = get
 
-        self.process = None
+        # self.process = None
         self.th = threading.Thread(target=self.find_master_start)
         self.th.setDaemon(True)
         self.th.start()
@@ -24,14 +25,14 @@ class Slaver(object):
             # Master增加转发Nat
             secret_key = str(uuid.uuid4())
             result = self.get(PART_API.ADD_NAT,
-                              data={"nat_port": self.nat_port, "secret_key": secret_key,
+                              data={"nat_ip": self.nat_ip, "nat_port": self.nat_port, "secret_key": secret_key,
                                     "target_addr": self.target_addr})
-            if result.is_success:
-                data_port = result.data["data_port"]
-                secret_key = result.data["secret_key"]
-                master_ip = result.data["master_ip"]
+            if result["is_success"]:
+                data_port = result['data']["data_port"]
+                secret_key = result['data']["secret_key"]
+                master_ip = result['data']["master_ip"]
             else:
-                raise Exception("ADD_NAT ERROR" + str(result.msg))
+                raise Exception("ADD_NAT ERROR" + str(result["msg"]))
             communicate_addr = (master_ip, int(data_port))
             time.sleep(1)
             self.log.info(
