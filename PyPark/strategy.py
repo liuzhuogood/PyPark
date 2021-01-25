@@ -112,15 +112,28 @@ def get_result(host, url, data, s_request, **kwargs) -> Result:
 def get_many_results(data, cut_list, filter_hosts, s_request, url, **kwargs):
     tasks = []
     # 数据的份数
-    aa = cut_list_num(data_list=cut_list, cut_num=len(filter_hosts))
-    host_index = 0
-    for a in aa:
-        task = MyThread(target=get,
-                        args=(filter_hosts[host_index], url, data, f"{a[0]}-{a[1]}", s_request, kwargs,),
-                        daemon=True)
-        task.start()
-        tasks.append(task)
-        host_index += 1
+    if cut_list is not None:
+        aa = cut_list_num(data_list=cut_list, cut_num=len(filter_hosts))
+        host_index = 0
+        for a in aa:
+            task = MyThread(target=get,
+                            args=(filter_hosts[host_index], url, data, f"{a[0]}-{a[1]}", s_request, kwargs,),
+                            daemon=True)
+            task.name = filter_hosts[host_index]
+            task.start()
+            tasks.append(task)
+            host_index += 1
+    else:
+        aa = filter_hosts
+        host_index = 0
+        for a in aa:
+            task = MyThread(target=get,
+                            args=(filter_hosts[host_index], url, data, f"0-0", s_request, kwargs,),
+                            daemon=True)
+            task.name = filter_hosts[host_index]
+            task.start()
+            tasks.append(task)
+            host_index += 1
     results = []
     all_success = True
     msg = ""

@@ -1,5 +1,7 @@
-import socket
 import datetime
+import socket
+
+use_ports = []
 
 
 def is_inuse(ip, port):
@@ -14,25 +16,25 @@ def is_inuse(ip, port):
         return False
 
 
-def get_random_port(ip, port=8000):
-    """根据IP获取一个随机端口（15000~20000）"""
-    import random
+def get_random_port(ip, port=8000, start=10000, end=20000):
+    """根据IP获取一个随机端口（1000~20000）"""
     times = 0
-    max_times = 50
-    if not is_inuse(ip, port):
+    max_times = 10000
+    if not is_inuse(ip, port) and port not in use_ports:
         return port
-    port = random.randint(15000, 20000)
-    while is_inuse(ip, port) and times < max_times:
-        port = random.randint(15000, 20000)
+    port = start
+    while is_inuse(ip, port) or port in use_ports:
+        port += 1
         times += 1
-    if times > max_times:
-        Exception("端口号获取失败")
+    if times > max_times or port >= end:
+        raise Exception("端口号获取失败")
+    use_ports.append(port)
     return port
 
 
 def get_pc_name_ip(host):
     """获取当前IP与主机名 返回:(ip,name)"""
-    name = socket.getfqdn(socket.gethostname())
+    name = socket.gethostname()
     s = None
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

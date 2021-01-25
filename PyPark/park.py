@@ -1,46 +1,48 @@
 import atexit
-import os
+import logging
+import random
 
-import requests
-from requests.adapters import HTTPAdapter
-
-from PyPark.Watch import Watch
 from PyPark.config import Config
-from PyPark.cons import ServerRole, Strategy, ServerNetwork
-from PyPark.http import *
 from PyPark.lock import Lock
 from PyPark.nat.master import Master
 from PyPark.nat.slaver import Slaver
-from PyPark.park_exception import NoServiceException
-from PyPark.result import Result
-from PyPark.strategy import strategy_choice, many_strategy_choice
+from PyPark.park_zk import ParkZK
+from PyPark.rest import Rest
 from PyPark.util.json_to import JsonTo
 from PyPark.util.net import get_random_port, get_pc_name_ip
-from PyPark.version import show_version
-from PyPark.zk import ZK
+from PyPark.util.zk_util import path_join
+from PyPark.version import print_infos
+from PyPark.watch import Watch
 
 """
- PyPark是一个高性能微服务框架,适合做大数据清洗计算等,集成内网穿透功能非常适合开发分布式微服务而不用担心网络限制.
- 开发者:liuzhuogod@foxmail.com
+ PyPark是一个高性能微服务框架
+ 优点：
+     1、简单Rest、RPC应用，支持分布式调用，回调
+     2、内网穿透功能，支持地域分布式，跨越网络更简单
+     3、非常适合开发分布式微服务而不用担心网络限制.
+     4、使用了ZeroRPC，高性能方便扩展
+     5、统一配置中心、配置监听
+     6、提供分布式锁
+     7、提供共享字典
+ 项目地址:
+ 开 发 者：liuzhuogod@foxmail.com
 """
 
 
 class Park(object):
-    s_request = requests.Session()
-    s_request.mount('http://', HTTPAdapter(pool_connections=60, max_retries=200))
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
-            self.zk.end()
+            self.zk.close()
         except Exception:
             pass
 
     def __del__(self):
         try:
-            self.zk.end()
+            self.zk.close()
         except Exception:
             pass
 
@@ -48,222 +50,155 @@ class Park(object):
         """
         初始化 Park
         :param zk_host:str                      # zk地址 例："127.0.0.1:2181"
-        :param zk_base_path:str                 # zk_base_path, 默认为 "PyPark"
+        :param zk_name:str                      # zk_name, 默认为 "PyPark"
         :param zk_auth_data:str                 # zk ACL 例：[("digest", "username:password")]
-        :param zk_base_path:str                 # 默认："PyPark"
-        :param server_role:str                  # 微服务类型 ServerRole
-        :param server_desc:str                  # 微服务描述
-        :param server_network:str               # 微服务网络类型，默认为"LOCAL",只有属于同一网络才可以局域网调用
-        :param server_ip:str                    # 本机服务器IP，默认为连接ZK的网卡IP
-        :param server_port:str                  # server_port
-        :param base_url:str                     # service路径，默认为"/",对应zk多级目录
-        :param nat_port:int                     # 内网穿透服务,启动NAT slaver进程
-        :param sync_config:bool                 # 配置是否同步, 默认False
-        :param api_doc:bool                     # 是否启动API DOC, 默认True
-        :param doc_conf_dir:bool                # doc配置目录,自动生成*.default,自动读取目录所有*.yml文件.
+        :param group:str                        #
+        :param name:str                         #
+        :param ip:str                           # 本机服务器IP，默认为连接ZK的网卡IP
+        :param port:int                         # port
+        :param rest_base_url:str                # service路径，默认为"/",对应zk多级目录
+        :param nat_ip:str                       # nat_ip
+        :param nat_port:int                     #
+        :param watch_config:bool                # 配置是否同步, 默认False
+        :param watch_configs:bool            # 配置是否同步, 默认False
+        :param rpc_timeout:int                  # rpc_timeout
         :param log:logging                      # 日志
         :param json_to_cls:JsonTo               # JSON转换器,默认为 PyPark.util.json_to.JsonTo
         """
-        ip, _ = get_pc_name_ip(zk_host)
-        zk_base_path = kwargs.get("zk_base_path", "PyPark")
-        server_ip = kwargs.get("server_ip", ip)
-        base_url = kwargs.get("base_url", "/")
-        timeout = kwargs.get("timeout", 30)
+        local_ip, local_name = get_pc_name_ip(zk_host)
+        self.zk_host = kwargs.get("zk_host", "127.0.0.1:2181")
+        self.zk_name = kwargs.get("zk_name", "PyPark")
         self.zk_auth_data = kwargs.get("zk_auth_data", None)
-        self.zk_host = kwargs.get("zk_host", None)
+        self.group = kwargs.get("group", "DEFAULT")
+        self.ip = kwargs.get("ip", local_ip)
+        self.port = kwargs.get("port", None)
+        if self.port is None:
+            self.port = get_random_port(local_ip, port=5253)
+        self.port = int(self.port)
+        self.rest_base_url = kwargs.get("rest_base_url", "/")
+        self.nat_ip = kwargs.get("nat_ip", None)
         self.nat_port = kwargs.get("nat_port", None)
-        self.sync_config = kwargs.get("sync_config", False)
-        self.server_role = kwargs.get("server_role", ServerRole.Worker)
-        self.server_port = kwargs.get("server_port", None)
-        self.server_desc = kwargs.get("server_desc", "")
+        self.watch_config = kwargs.get("watch_config", True)
+        self.watch_configs = kwargs.get("watch_configs", False)
         self.log = kwargs.get("log", logging.getLogger(__name__))
-        self.server_network = kwargs.get("server_network", ServerNetwork.LOCAL)
-        self.api_doc = kwargs.get("api_doc", True)
-        self.json_to_cls = JsonTo
-        self.httpApp = HttpApp()
-        self.handlers = []
-
-        if self.server_role == ServerRole.NatWorker and self.nat_port is None:
-            raise Exception("用NAT服务器，必须配置一个NAT端口")
-
-        self.zk_base_path = zk_base_path
-        self.timeout = timeout
-        self.server_ip = server_ip
-        # service端口
-        self.service_base_url = base_url
-        if self.server_port is None:
-            self.service_port = get_random_port(ip=self.server_ip)
-        else:
-            self.service_port = self.server_port
-        self.service_local_map = {}
+        self.rpc_timeout = kwargs.get("rpc_timeout", 30)
+        self.is_master = kwargs.get("is_master", False)
+        self.data = {}
+        self.slavers = []
         # zookeeper
-        self.zk = ZK(zk_host=zk_host,
-                     server_ip=self.server_ip,
-                     server_role=self.server_role,
-                     service_port=self.service_port,
-                     nat_port=self.nat_port,
-                     server_desc=self.server_desc,
-                     zk_auth_data=self.zk_auth_data,
-                     zk_base_path=zk_base_path,
-                     server_network=self.server_network,
-                     service_base_url=self.service_base_url,
-                     log=self.log,
-                     reconnect=self.zk_reconnect
-                     )
+        self.zk = ParkZK(zk_host=zk_host,
+                         zk_name=self.zk_name,
+                         group=self.group,
+                         zk_auth_data=self.zk_auth_data,
+                         ip=self.ip,
+                         port=self.port,
+                         nat_port=self.nat_port,
+                         nat_ip=self.nat_ip,
+                         log=self.log,
+                         reconnect=self.zk_reconnect
+                         )
         self.zk.start()
-        # self.zk.watcher_service_map()
+
+        self.json_to_cls = JsonTo
+        self.rest = Rest(self.zk, max_pool_num=10)
+        self.handlers = []
+        self.__register_map = {}
+        self.register = self.__register
 
         # 配置中心
-        self.config = Config(self.zk, self.sync_config)
+        self.config = Config(self.zk, self.watch_config, self.watch_configs)
+        if self.is_master:
+            self.master = Master(self, self.log)
+            self.__register(self.master.addNat)
 
-        if self.server_role == ServerRole.NatServer:
-            self.master = Master(self)
+        if self.nat_port:
+            self.slavers.append(Slaver(target_addr=f"{self.ip}:{self.port}", nat_port=self.nat_port,
+                                       get=self.call))
 
-        if self.server_role == ServerRole.NatWorker:
-            self.slaver = Slaver(target_addr=f"{self.server_ip}:{self.service_port}", nat_port=self.nat_port,
-                                 get=self.get_one)
-
-        self.zk.register_server()
-
-    def zk_reconnect(self):
-        self.config = Config(self.zk, self.sync_config)
-        self.zk.register_server()
-        self.zk.register_service(self.service_local_map)
-        self.log.warning("断线重连完成")
-
-    def service(self, path=None, **kwargs):
+    def watch(self, path=None, absolute=False):
         """
-        :param path:str
-        :return: fn(data,cut_data, self.request.headers)
-
+        监听节点
+        :param path:
+        :param absolute:
+        :return:
         """
-        if path is not None and "/" in path:
-            raise ServiceException("path 参数暂不支持带有/的多级路径")
+
+        if callable(path):
+            a = path.__name__
+        else:
+            a = path
 
         def decorate(fn):
-            if path is None:
-                a = str(fn.__name__)
-            else:
-                a = path
+            watch_path = a
             # 加上默认路径
-            a = '/' + ZK.path_join(self.service_base_url, a)
-            if a.startswith("//"):
-                a = a[1:]
-            if self.service_local_map.get(a, None) is None:
-                self.service_local_map[a] = {
-                    "fn": fn,
-                }
+            if self.zk.exists(path=watch_path, absolute=absolute):
+                self.zk.get(path=watch_path, watch=Watch(self.zk, watch_path, fn).callback, absolute=absolute)
+            else:
+                self.zk.set(path=watch_path, value="", absolute=absolute)
+                self.zk.get(path=watch_path, watch=Watch(self.zk, watch_path, fn).callback, absolute=absolute)
             return fn
 
+        if callable(path):
+            decorate(path)
+
         return decorate
+
+    def __register(self, obj):
+        if callable(obj):
+            rest_path = obj.__name__
+        else:
+            rest_path = obj
+
+        def decorate(fn):
+            # 加上默认路径
+            a = '/' + path_join(rest_path)
+            if a.startswith("//"):
+                a = a[1:]
+            if self.__register_map.get(a, None) is None:
+                self.__register_map[a] = fn
+            return fn
+
+        if callable(obj):
+            decorate(obj)
+        return decorate
+
+    def zk_reconnect(self):
+        self.config = Config(self.zk, self.watch_config, self.watch_configs)
+        self.zk.register_rest_service(self.rest.services)
+        self.log.warning("断线重连完成")
 
     def lock(self, key="lock", data="") -> Lock:
         return Lock(zk=self.zk, key=key, data=data)
 
-    def watch(self, path=None):
-        """
-        节点监听
-        :param path: 路径
-        :return:
-        """
+    def call(self, method, data, hosts=None, **kwargs):
+        hosts = random.choice(hosts)
+        return self.rest.call(method=method, data=data, hosts=hosts)
 
-        def decorate(fn):
-            if path is None:
-                a = str(fn.__name__).replace("_", "/")
-            else:
-                a = path
-            # 加上默认路径
-            a = os.path.join(self.service_base_url, a)
-            if self.zk.exists(path=a):
-                self.zk.get(path=a, watch=Watch(self.zk, a, fn).callback)
-            else:
-                self.zk.set(path=a, value="")
-                self.zk.get(path=a, watch=Watch(self.zk, a, fn).callback)
-            return fn
-
-        return decorate
-
-    def get_one(self, api, data, **kwargs) -> Result:
-        """
-        单调
-        :param api:
-        :param data:
-        :param strategy:Strategy                        # 默认为Strategy.ROUND 可选值为[random(随机策略)|hash(hash路由策略)|round(轮询策略)|host(定向策略)|callback(自定策略)]
-        :param async_flag:bool                          # 默认为False是否回调返回,结果通过"result_service"回调
-        :param result_service:str                       # 结果回调方法,将会通过原请求源的路由返回
-        :param hash:str                                 # 当strategy='hash'时有效
-        :param host:str                                 # 当strategy='host'时有效,支持正则
-        :param callback:function(hosts, url, data)      # 必须返回一个host
-        :param timeout:int                              # http time second: 30
-        :param headers:dict                             # http headers
-        :return:
-        """
-        kwargs["server_role"] = kwargs.get("server_role", ".*")
-        kwargs["server_network"] = kwargs.get("server_network", self.server_network)
-        kwargs["strategy"] = kwargs.get("strategy", Strategy.ROUND)
-        kwargs["async_flag"] = kwargs.get("async_flag", False)
-        kwargs["kwargs"] = kwargs.get("timeout", self.timeout)
-
-        hosts = self.zk.get_service_hosts(api=api, server_role=kwargs["server_role"],
-                                          server_network=kwargs["server_network"])
-        if len(hosts) == 0:
-            raise NoServiceException(api)
-        return strategy_choice(hosts=hosts, url=api, data=data, s_request=Park.s_request, **kwargs)
-
-    def get_many(self, api, data, cut_list: list = None, **kwargs) -> Result:
-        """
-        多调
-        :param api:
-        :param data:
-        :param cut_list:                                # 分片数据,必须为数组对象
-        :param strategy:Strategy                        # 默认为Strategy.ROUND 可选值为[round(轮询策略)|host(定向策略)|DIY(自定策略)]
-        :param async_flag:bool                          # 默认为False是否回调返回,结果通过"result_service"回调
-        :param result_service:str                       # 结果回调方法,将会通过原请求源的路由返回
-        :param hash:str                                 # 当strategy='hash'时有效
-        :param host:str                                 # 当strategy='host'时有效,支持正则
-        :param callback:function(hosts, url, data)      # 必须返回一个host
-        :param timeout:int                              # http time second: 30
-        :param headers:dict                             # http headers
-        :return:
-        """
-        kwargs["server_role"] = kwargs.get("server_role", ".*")
-        kwargs["server_network"] = kwargs.get("server_network", self.server_network)
-        kwargs["strategy"] = kwargs.get("strategy", Strategy.ROUND)
-        kwargs["async_flag"] = kwargs.get("async_flag", False)
-        kwargs["kwargs"] = kwargs.get("timeout", self.timeout)
-
-        hosts = self.zk.get_service_hosts(api=api, server_role=kwargs["server_role"],
-                                          server_network=kwargs["server_network"])
-        if len(hosts) == 0:
-            raise NoServiceException(api)
-        return many_strategy_choice(hosts=hosts, url=api, data=data, cut_list=cut_list, s_request=Park.s_request,
-                                    **kwargs)
+    def call_all(self, method, data, hosts=None) -> list:
+        return self.rest.call(method=method, data=data, hosts=hosts)
 
     def add_nat(self, nat_port, target_addr):
-        if self.server_role == ServerRole.NatWorker:
-            self.slaver = Slaver(target_addr=target_addr, nat_port=nat_port,
-                                 get=self.get_one)
-        else:
-            raise Exception("只有Slaver才可以进行NAT映射")
+        self.slavers.append(Slaver(target_addr=target_addr, nat_port=nat_port,
+                                   get=self.call))
 
     def run(self):
         atexit.register(self.close)
-        self.zk.register_service(service_local_map=self.service_local_map)
-        # 设置路径
-        self.log.debug("-----------PyPark-------------")
-        for u in self.service_local_map.keys():
-            self.log.info(f"===> Service:{u}")
-
-        self.log.info(f"执行文件创建日期<<:{show_version()}>>")
-        self.log.info(f"{self.server_role} PyPark Start By {self.server_ip}:{self.service_port}")
+        self.rest.services.update(self.__register_map)
+        self.zk.register_rest_service(services=self.rest.services)
+        print_infos(self)
         try:
-            self.httpApp.json_cls = self.json_to_cls
-            self.httpApp.run("0.0.0.0", self.service_port, url_map=self.service_local_map, handlers=self.handlers)
+            self.rest.json_cls = self.json_to_cls
+            self.rest.run(self.ip, self.port, self.handlers)
+
+
+
         except KeyboardInterrupt:
             self.log.info("手动停止")
             self.close()
 
     def close(self):
-        self.zk.end()
-        self.httpApp.close()
-        Park.s_request.close()
+        try:
+            self.zk.close()
+            self.rest.close()
+        except Exception:
+            pass

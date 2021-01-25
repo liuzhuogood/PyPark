@@ -33,7 +33,7 @@ def cut_list_data(data_list: list, cut_num=1) -> list:
     return results
 
 
-def cut_list_num(data_list: list, cut_num=1) -> list:
+def cut_list_num(data_list: list, cut_num=1):
     """
     把数组切成指定份数返回数据下标数组
     :param data_list: 源数组
@@ -41,8 +41,7 @@ def cut_list_num(data_list: list, cut_num=1) -> list:
     :return:
     """
     if data_list is None:
-        data_list = []
-
+        return None
     # 数据的份数
     data_nums = len(data_list)
     # 数据分片开始

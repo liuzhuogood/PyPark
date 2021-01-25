@@ -1,16 +1,8 @@
-import datetime
-import os
-import sys
+import logging
 
 
-def show_version():
-    try:
-        exc_file = os.path.realpath(sys.executable)
-        ctime = os.stat(exc_file).st_ctime
-        return datetime.datetime.fromtimestamp(ctime).strftime('%Y-%m-%d %H:%M:%S')
-    except Exception:
-        return "无法显示版本"
-
-
-if __name__ == '__main__':
-    print(show_version())
+def print_infos(pk):
+    for u in pk.rest.services.keys():
+        pk.log.info(f"Rest Service : {u}")
+    if len(pk.rest.services.keys()) > 0:
+        logging.info(f"Started By [{pk.group}] http://{pk.ip}:{pk.port}")
