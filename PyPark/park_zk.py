@@ -16,19 +16,18 @@ class ParkZK(ZK):
                  zk_name,
                  group,
                  zk_auth_data,
+                 rest_base_url,
                  ip,
                  port,
                  nat_port,
-                 nat_ip,
                  log=None,
                  reconnect=None):
-        super().__init__(zk_host, zk_name, zk_auth_data, log, reconnect)
+        super().__init__(zk_host, zk_name, rest_base_url, zk_auth_data, log, reconnect)
         self.group = group
         self.zk_name = zk_name
         self.ip = ip
         self.port = port
         self.nat_port = nat_port
-        self.nat_ip = nat_ip
 
     def register_rest_service(self, services):
         for key in list(services.keys()):
@@ -36,7 +35,7 @@ class ParkZK(ZK):
             self.mkdir(path)
             temp_path = path_join("/", path, f"[{self.group}]{self.ip}:{self.port}")
             http_url = f"""http://{self.ip}:{self.port}/{path.lstrip("/" + ZK_REST_PATH_NAME)}"""
-            nat_http_url = f"""http://{self.nat_ip}:{self.nat_port}/{path.lstrip("/" + ZK_REST_PATH_NAME)}"""
+            nat_http_url = f"""http://nat_address:{self.nat_port}/{path.lstrip("/" + ZK_REST_PATH_NAME)}"""
             self.setTemp(temp_path, yaml.dump({
                 "PID": self.pid,
                 "IP": self.ip,

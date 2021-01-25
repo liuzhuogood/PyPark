@@ -15,13 +15,14 @@ from PyPark.util.zk_util import path_join
 class ZK:
     """ ZK 基础客户端 """
 
-    def __init__(self, zk_host, zk_name, zk_auth_data=None, log=None, reconnect=None):
+    def __init__(self, zk_host, zk_name, rest_base_url, zk_auth_data=None, log=None, reconnect=None):
         self.log = log or logging.getLogger(__name__)
         self.root = "/"
         self.zk_host = zk_host
         self.zk = KazooClient(hosts=self.zk_host, auth_data=zk_auth_data, logger=self.log)
         self.pid = os.getpid()
         self.zk_name = zk_name
+        self.rest_base_url = rest_base_url
         self.lock = threading.RLock()
         self.LOST = False
         self.zk.add_listener(self.connect_listener)

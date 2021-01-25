@@ -21,11 +21,11 @@ from PyPark.util.zk_util import path_join
 
 
 class Rest:
-    def __init__(self, zk, max_pool_num, json_cls=None, timeout=30):
+    def __init__(self, zk, rest_base_url, max_pool_num, json_cls=None, timeout=30):
         self.zk = zk
         self.json_cls = json_cls
         self.services = {}
-        self.base_url = ""
+        self.rest_base_url = rest_base_url
         self.threadPool = ThreadPoolExecutor(max_workers=max_pool_num)
         self.s_request = requests.Session()
         self.s_request.mount('http://',
@@ -61,7 +61,7 @@ class Rest:
 
         def decorate(fn):
             # 加上默认路径
-            a = '/' + path_join(self.base_url, rest_path)
+            a = '/' + path_join(self.rest_base_url, rest_path)
             if a.startswith("//"):
                 a = a[1:]
             if self.services.get(a, None) is None:

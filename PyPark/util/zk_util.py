@@ -3,5 +3,6 @@ def path_join(*aa: str):
     for a in aa:
         if a.startswith("/"):
             a = a[1:]
-        path.append(a)
+        if a != "":
+            path.append(a)
     return "/".join(path)

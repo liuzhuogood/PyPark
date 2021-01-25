@@ -1,5 +1,6 @@
 import atexit
 import logging
+import os
 import random
 
 from PyPark.config import Config
@@ -10,7 +11,6 @@ from PyPark.park_zk import ParkZK
 from PyPark.rest import Rest
 from PyPark.util.json_to import JsonTo
 from PyPark.util.net import get_random_port, get_pc_name_ip
-from PyPark.util.zk_util import path_join
 from PyPark.version import print_infos
 from PyPark.watch import Watch
 
@@ -27,6 +27,8 @@ from PyPark.watch import Watch
  项目地址:
  开 发 者：liuzhuogod@foxmail.com
 """
+NAT_PORT_MAP = {}
+NAT_IP = ""
 
 
 class Park(object):
@@ -64,6 +66,7 @@ class Park(object):
         :param rpc_timeout:int                  # rpc_timeout
         :param log:logging                      # 日志
         :param json_to_cls:JsonTo               # JSON转换器,默认为 PyPark.util.json_to.JsonTo
+        :param debug:bool                      # J
         """
         local_ip, local_name = get_pc_name_ip(zk_host)
         self.zk_host = kwargs.get("zk_host", "127.0.0.1:2181")
@@ -84,6 +87,7 @@ class Park(object):
         self.rpc_timeout = kwargs.get("rpc_timeout", 30)
         self.is_master = kwargs.get("is_master", False)
         self.broadcast = kwargs.get("broadcast", True)
+        self.debug = kwargs.get("debug", False)
         self.data = {}
         self.slavers = []
         # zookeeper
@@ -91,29 +95,48 @@ class Park(object):
                          zk_name=self.zk_name,
                          group=self.group,
                          zk_auth_data=self.zk_auth_data,
+                         rest_base_url=self.rest_base_url,
                          ip=self.ip,
                          port=self.port,
                          nat_port=self.nat_port,
-                         nat_ip=self.nat_ip,
                          log=self.log,
                          reconnect=self.zk_reconnect
                          )
         self.zk.start()
 
         self.json_to_cls = JsonTo
-        self.rest = Rest(self.zk, max_pool_num=10)
+        self.rest = Rest(self.zk, max_pool_num=10, rest_base_url=self.rest_base_url)
         self.handlers = []
-        self.__register_map = {}
-        self.register = self.__register
 
         # 配置中心
         self.config = Config(self.zk, self.watch_config, self.watch_configs)
         if self.is_master:
-            self.__register(addNat)
+            global NAT_IP
+            NAT_IP = self.ip
+            self.register(addNat)
 
         if self.nat_port:
-            self.slavers.append(Slaver(target_addr=f"{self.ip}:{self.port}", nat_ip=self.nat_ip, nat_port=self.nat_port,
-                                       get=self.call))
+            self.slavers.append(Slaver(target_addr=f"{self.ip}:{self.port}", nat_port=self.nat_port,
+                                       get=self.call, rest_base_url=self.rest_base_url))
+
+        if self.debug:
+            try:
+                import pydevd_pycharm
+                self.debug_host = os.environ.get("DEBUG_HOST")
+                ip, port = self.debug_host.split(":")
+
+                pydevd_pycharm.settrace(ip, port=port, stdoutToServer=True,
+                                        stderrToServer=True)
+            except Exception as e:
+                self.log.info("""
+                ----------------
+                
+                $> pip3 install pydevd-pycharm
+                $> export DEBUG_HOST="192.168.1.100:9898"
+                    
+                ----------------
+                """)
+                self.log.error(f"Debug Error: {str(e)}")
 
     def watch(self, path=None, absolute=False):
         """
@@ -146,24 +169,8 @@ class Park(object):
 
         return decorate
 
-    def __register(self, obj):
-        if callable(obj):
-            rest_path = obj.__name__
-        else:
-            rest_path = obj
-
-        def decorate(fn):
-            # 加上默认路径
-            a = '/' + path_join(rest_path)
-            if a.startswith("//"):
-                a = a[1:]
-            if self.__register_map.get(a, None) is None:
-                self.__register_map[a] = fn
-            return fn
-
-        if callable(obj):
-            decorate(obj)
-        return decorate
+    def register(self, obj):
+        return self.rest.register(obj)
 
     def zk_reconnect(self):
         self.config = Config(self.zk, self.watch_config, self.watch_configs)
@@ -176,7 +183,9 @@ class Park(object):
     def call(self, method, data, hosts=None, **kwargs):
         if hosts is None:
             hosts = self.zk.get_rest_nodes(method)
-        hosts = random.choice(hosts)
+        if isinstance(hosts, list):
+            hosts = random.choice(hosts)
+
         return self.rest.call(method=method, data=data, hosts=hosts)
 
     def call_all(self, method, data, hosts=None) -> list:
@@ -190,7 +199,6 @@ class Park(object):
 
     def run(self):
         atexit.register(self.close)
-        self.rest.services.update(self.__register_map)
         self.zk.register_rest_service(services=self.rest.services)
         print_infos(self)
         try:
